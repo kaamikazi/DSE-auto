@@ -1,0 +1,3 @@
+occurred_at,transaction_type,symbol,quantity,price,fees,taxes,broker,account_label,notes
+2025-01-01T10:00:00+06:00,buy,GP,100,300.00,120.00,0.00,Example Broker,Primary,Replace this sample before import
+

@@ -1,0 +1,328 @@
+from __future__ import annotations
+
+import csv
+import io
+from contextlib import suppress
+from dataclasses import asdict
+from datetime import date
+from decimal import Decimal
+from typing import Annotated, cast
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
+
+from app.backtesting import run_backtest
+from app.brokers import PaperBroker
+from app.core.config import Settings, get_settings
+from app.core.database import get_db
+from app.core.security import require_api_key
+from app.data.providers import DataProviderError, create_provider
+from app.models import AuditEvent, Order, Signal, Transaction
+from app.risk import RiskEngine
+from app.risk.kill_switch import get_state, set_state
+from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
+from app.services.audit import verify_audit_chain
+from app.services.data_validation import compare_quotes
+from app.services.orders import approve_order, propose_order
+from app.services.portfolio import add_transaction, derive_portfolio
+from app.services.signals import moving_average_signal
+
+router = APIRouter(prefix="/api/v1")
+Db = Annotated[Session, Depends(get_db)]
+
+
+def _server_validated_proposal(
+    payload: OrderProposalCreate, settings: Settings
+) -> OrderProposalCreate:
+    """Replace all client-asserted market facts with provider-derived values."""
+    primary = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    secondary = create_provider(settings.DATA_SECONDARY_PROVIDER, settings.CSV_DATA_DIR)
+    quote = primary.get_quote(payload.symbol)
+    try:
+        secondary_quote = secondary.get_quote(payload.symbol)
+    except DataProviderError:
+        secondary_quote = None
+    comparison = compare_quotes(
+        quote,
+        secondary_quote,
+        max_disagreement_percent=Decimal(str(settings.DATA_MAX_PROVIDER_DISAGREEMENT_PERCENT)),
+        max_staleness_seconds=settings.DATA_MAX_STALENESS_SECONDS,
+    )
+    return payload.model_copy(
+        update={
+            "current_price": quote.last_price,
+            "data_timestamp": quote.market_timestamp,
+            "data_quality_status": "valid" if comparison.safe_for_orders else "unsafe",
+            "provider_disagreement_percent": comparison.disagreement_percent,
+            "bid": quote.bid,
+            "ask": quote.ask,
+            "average_daily_volume": payload.average_daily_volume or quote.volume,
+        }
+    )
+
+
+@router.get("/health")
+def health(db: Db, settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    database = True
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        database = False
+    primary = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    status: dict[str, object] = {
+        "application": "healthy" if database else "degraded",
+        "database": database,
+        "provider": primary.health_check(),
+        "trading_mode": settings.TRADING_MODE,
+        "live_trading_enabled": False,
+        "audit_chain_valid": verify_audit_chain(db),
+    }
+    return status
+
+
+@router.get("/market/quote/{symbol}")
+def quote(symbol: str, settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    primary = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    secondary = create_provider(settings.DATA_SECONDARY_PROVIDER, settings.CSV_DATA_DIR)
+    try:
+        primary_quote = primary.get_quote(symbol)
+        try:
+            secondary_quote = secondary.get_quote(symbol)
+        except DataProviderError:
+            secondary_quote = None
+        comparison = compare_quotes(
+            primary_quote,
+            secondary_quote,
+            max_disagreement_percent=Decimal(str(settings.DATA_MAX_PROVIDER_DISAGREEMENT_PERCENT)),
+            max_staleness_seconds=settings.DATA_MAX_STALENESS_SECONDS,
+        )
+        return comparison.model_dump(mode="json")
+    except DataProviderError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@router.post("/portfolio/transactions", dependencies=[Depends(require_api_key)])
+def create_transaction(payload: TransactionCreate, db: Db) -> dict[str, object]:
+    transaction = add_transaction(db, payload)
+    return {"id": transaction.id, "status": "recorded", "append_only": True}
+
+
+@router.post("/portfolio/import-csv", dependencies=[Depends(require_api_key)])
+async def import_transactions(db: Db, file: UploadFile = File(...)) -> dict[str, object]:
+    raw = (await file.read()).decode("utf-8-sig")
+    rows = list(csv.DictReader(io.StringIO(raw)))
+    imported: list[str] = []
+    try:
+        for row in rows:
+            payload = TransactionCreate.model_validate(row)
+            imported.append(add_transaction(db, payload, source_record=row).id)
+    except Exception as exc:
+        raise HTTPException(422, f"Import stopped at row {len(imported) + 1}: {exc}") from exc
+    return {"imported": len(imported), "transaction_ids": imported}
+
+
+@router.get("/portfolio")
+def portfolio(db: Db, settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    symbols = sorted(set(db.scalars(select(Transaction.symbol)).all()))
+    prices: dict[str, Decimal] = {}
+    for symbol in symbols:
+        with suppress(DataProviderError):
+            prices[symbol] = provider.get_quote(symbol).last_price
+    return derive_portfolio(db, prices).model_dump(mode="json")
+
+
+@router.post("/backtests")
+def backtest(
+    payload: BacktestRequest, settings: Settings = Depends(get_settings)
+) -> dict[str, object]:
+    provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    end = date.today()
+    start = date(end.year - 2, end.month, min(end.day, 28))
+    try:
+        bars = provider.get_history(payload.symbol, start, end)
+        benchmark = provider.get_index_history("DSEX", start, end)
+        return cast(dict[str, object], asdict(run_backtest(bars, payload, benchmark)))
+    except (DataProviderError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/signals/{symbol}", dependencies=[Depends(require_api_key)])
+def generate_signal(
+    symbol: str, db: Db, settings: Settings = Depends(get_settings)
+) -> dict[str, object]:
+    provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    end = date.today()
+    start = date(end.year - 1, end.month, min(end.day, 28))
+    try:
+        signal = moving_average_signal(
+            db, symbol, provider.get_history(symbol, start, end), provider.get_quote(symbol)
+        )
+        return {
+            "id": signal.id,
+            "signal_type": signal.signal_type,
+            "strength_score": signal.strength_score,
+            "label": "strategy-strength score; not a probability",
+        }
+    except (DataProviderError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/signals")
+def list_signals(db: Db) -> list[dict[str, object]]:
+    return [
+        {
+            "id": item.id,
+            "symbol": item.symbol,
+            "signal_type": item.signal_type,
+            "strength_score": item.strength_score,
+            "timestamp": item.timestamp.isoformat(),
+            "data_quality_status": item.data_quality_status,
+        }
+        for item in db.scalars(select(Signal).order_by(Signal.timestamp.desc()).limit(100))
+    ]
+
+
+@router.post("/orders/proposals", dependencies=[Depends(require_api_key)])
+def create_proposal(
+    payload: OrderProposalCreate, db: Db, settings: Settings = Depends(get_settings)
+) -> dict[str, object]:
+    try:
+        payload = _server_validated_proposal(payload, settings)
+        order, decision = propose_order(
+            db, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS
+        )
+        return {
+            "order_id": order.id,
+            "status": order.status,
+            "risk_decision": decision.model_dump(mode="json"),
+            "destination": "paper_only",
+        }
+    except DataProviderError as exc:
+        raise HTTPException(503, f"Server-side market validation failed: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/approve", dependencies=[Depends(require_api_key)])
+def approve(
+    order_id: str, payload: OrderProposalCreate, db: Db, settings: Settings = Depends(get_settings)
+) -> dict[str, object]:
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    try:
+        payload = _server_validated_proposal(payload, settings)
+        decision = approve_order(
+            db, order, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS
+        )
+        return {
+            "order_id": order.id,
+            "status": order.status,
+            "risk_decision": decision.model_dump(mode="json"),
+            "destination": "paper_only",
+        }
+    except DataProviderError as exc:
+        raise HTTPException(503, f"Server-side market revalidation failed: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/execute", dependencies=[Depends(require_api_key)])
+def execute(
+    order_id: str, market_price: Decimal, available_volume: int, db: Db
+) -> dict[str, object]:
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    try:
+        order = PaperBroker(db).submit_order(order, market_price, available_volume)
+        return {
+            "order_id": order.id,
+            "status": order.status,
+            "filled_quantity": order.filled_quantity,
+            "average_fill_price": str(order.average_fill_price)
+            if order.average_fill_price
+            else None,
+        }
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/orders/{order_id}/cancel", dependencies=[Depends(require_api_key)])
+def cancel(order_id: str, db: Db) -> dict[str, object]:
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "Order not found")
+    try:
+        PaperBroker(db).cancel_order(order)
+        return {"order_id": order.id, "status": order.status}
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/orders")
+def list_orders(db: Db) -> list[dict[str, object]]:
+    return [
+        {
+            "id": item.id,
+            "symbol": item.symbol,
+            "side": item.side,
+            "quantity": item.quantity,
+            "limit_price": str(item.limit_price) if item.limit_price else None,
+            "status": item.status,
+            "filled_quantity": item.filled_quantity,
+        }
+        for item in db.scalars(select(Order).order_by(Order.created_at.desc()).limit(100))
+    ]
+
+
+@router.get("/risk")
+def risk_status(db: Db) -> dict[str, object]:
+    state = get_state(db)
+    return {
+        "state": state.state,
+        "reason": state.reason,
+        "updated_at": state.updated_at.isoformat(),
+    }
+
+
+@router.post("/risk/emergency-stop", dependencies=[Depends(require_api_key)])
+def emergency_stop(db: Db) -> dict[str, object]:
+    state = set_state(db, "emergency_stop", "Manual emergency stop", "user")
+    return {"state": state.state, "reason": state.reason}
+
+
+@router.post("/risk/resume", dependencies=[Depends(require_api_key)])
+def resume(db: Db) -> dict[str, object]:
+    broker_status = PaperBroker(db).reconcile()
+    if not broker_status["healthy"] or not verify_audit_chain(db):
+        state = set_state(
+            db, "reconciliation_required", "Reconciliation or audit verification failed", "user"
+        )
+    else:
+        state = set_state(
+            db, "healthy", "Manual resume after successful paper reconciliation", "user"
+        )
+    return {"state": state.state, "reason": state.reason, "reconciliation": broker_status}
+
+
+@router.get("/audit")
+def audit_events(db: Db) -> dict[str, object]:
+    events = db.scalars(select(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(200)).all()
+    return {
+        "chain_valid": verify_audit_chain(db),
+        "events": [
+            {
+                "id": event.id,
+                "timestamp": event.timestamp.isoformat(),
+                "actor": event.actor,
+                "event_type": event.event_type,
+                "entity_type": event.entity_type,
+                "entity_id": event.entity_id,
+                "integrity_hash": event.integrity_hash,
+            }
+            for event in events
+        ],
+    }
