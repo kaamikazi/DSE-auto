@@ -1,0 +1,10 @@
+{
+  "timezone": "Asia/Dhaka",
+  "weekend_days": [4, 5],
+  "emergency_closed": false,
+  "periods": {
+    "auction": {"open": "09:45", "close": "10:00"},
+    "continuous": {"open": "10:00", "close": "14:30"}
+  },
+  "note": "Illustrative operator configuration; verify current DSE hours before real-data operation."
+}

@@ -7,6 +7,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 *.db
+backend/data/*.db*
 *.sqlite3
 node_modules/
 .next/
