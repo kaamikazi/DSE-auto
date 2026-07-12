@@ -74,6 +74,7 @@ class MockProvider(MarketDataProvider):
             stale=self.stale,
             quality_status="unsafe" if self.stale else "valid",
             quality_flags=["stale"] if self.stale else [],
+            timestamp_provenance="exchange_verified",
         )
 
     def get_history(self, symbol: str, start: date, end: date) -> list[HistoricalBar]:
@@ -102,6 +103,7 @@ class MockProvider(MarketDataProvider):
                         trade_count=300 + index % 100,
                         turnover=close * (80_000 + (index % 20) * 8_000),
                         source=self.name,
+                        timestamp_provenance="exchange_verified",
                     )
                 )
                 index += 1

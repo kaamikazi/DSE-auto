@@ -14,6 +14,7 @@ from app.models import Order, PaperAccount
 from app.notifications.telegram import send_telegram_alert
 from app.risk.engine import RiskEngine
 from app.risk.kill_switch import get_state
+from app.schemas.market import TimestampProvenance
 from app.schemas.trading import OrderProposalCreate, RiskDecision
 from app.services.audit import append_audit
 
@@ -66,6 +67,13 @@ def propose_order(
         )
         db.commit()
         return order, decision
+
+    provider_quote = provider.get_quote(payload.symbol)
+    if provider_quote.timestamp_provenance not in {
+        TimestampProvenance.EXCHANGE_VERIFIED,
+        TimestampProvenance.OPERATOR_ATTESTED,
+    }:
+        raise ValueError("Paper-order proposal blocked by insufficient timestamp trust")
 
     account = db.get(PaperAccount, 1)
     portfolio_value = account.cash if account else Decimal("0")
@@ -190,6 +198,31 @@ def approve_order(
         )
         db.commit()
         return decision
+
+    provider_quote = provider.get_quote(payload.symbol)
+    if provider_quote.timestamp_provenance not in {
+        TimestampProvenance.EXCHANGE_VERIFIED,
+        TimestampProvenance.OPERATOR_ATTESTED,
+    }:
+        order.status = "risk_rejected"
+        append_audit(
+            db,
+            actor="user",
+            event_type="order.approval_revalidated",
+            entity_type="order",
+            entity_id=order.id,
+            new_state={"approved": False, "reason_codes": ["INSUFFICIENT_TIMESTAMP_TRUST"]},
+        )
+        db.commit()
+        return RiskDecision(
+            approved=False,
+            rejected=True,
+            reason_codes=["INSUFFICIENT_TIMESTAMP_TRUST"],
+            reasons=["Provider quote timestamp provenance is insufficient"],
+            input_snapshot={"timestamp_provenance": provider_quote.timestamp_provenance},
+            risk_rule_version="1.0.0",
+            timestamp=datetime.now(UTC),
+        )
 
     state = get_state(db)
     account = db.get(PaperAccount, 1)

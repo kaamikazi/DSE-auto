@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
@@ -12,6 +14,27 @@ class BDShareProvider(MarketDataProvider):
     """Optional bdshare adapter. Imports lazily so offline mode never depends on it."""
 
     name = "bdshare"
+
+    def __init__(
+        self,
+        primary_endpoint: str = "https://dsebd.org/",
+        secondary_endpoint: str = "https://dsebd.com.bd/",
+        ca_bundle: Path | None = None,
+    ) -> None:
+        if not primary_endpoint.startswith("https://") or not secondary_endpoint.startswith(
+            "https://"
+        ):
+            raise ValueError("bdshare endpoint overrides must use HTTPS")
+        if ca_bundle is not None:
+            if not ca_bundle.is_file():
+                raise ValueError("Custom CA bundle does not exist")
+            os.environ["REQUESTS_CA_BUNDLE"] = str(ca_bundle.resolve())
+        module = self._module()
+        from bdshare.util import vars as provider_vars  # type: ignore[import-untyped]
+
+        provider_vars.DSE_URL = primary_endpoint.rstrip("/") + "/"
+        provider_vars.DSE_ALT_URL = secondary_endpoint.rstrip("/") + "/"
+        self._loaded_module = module
 
     def get_capabilities(self) -> ProviderCapability:
         return ProviderCapability(
@@ -64,6 +87,7 @@ class BDShareProvider(MarketDataProvider):
                     trade_count=int(row["trade"]) if row.get("trade") is not None else None,
                     turnover=Decimal(str(row["value"])) if row.get("value") is not None else None,
                     source=self.name,
+                    timestamp_provenance="provider_asserted",
                 )
             )
         return sorted(result, key=lambda item: item.timestamp)
@@ -95,6 +119,7 @@ class BDShareProvider(MarketDataProvider):
             source=self.name,
             quality_status="unsafe",
             quality_flags=["market_timestamp_unavailable_received_time_used"],
+            timestamp_provenance="receipt_only",
         )
 
     def get_market_summary(self) -> MarketSummary:

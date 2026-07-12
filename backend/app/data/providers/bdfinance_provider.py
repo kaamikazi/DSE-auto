@@ -56,11 +56,16 @@ class BDFinanceProvider(MarketDataProvider):
     @staticmethod
     def _client_type() -> Any:
         try:
+            import bdfinance
             from bdfinance import BDStockClient
         except ImportError as exc:
             raise DataProviderError(
                 "bdfinance is not installed; install the providers extra"
             ) from exc
+        if getattr(bdfinance, "__DSE_AUTOTRADER_TYPE_FACADE__", False):
+            raise DataProviderError(
+                "Only the local bdfinance typing facade is present; no published runtime package is installed"
+            )
         return BDStockClient
 
     async def _quote(self, symbol: str) -> Any:
@@ -95,6 +100,7 @@ class BDFinanceProvider(MarketDataProvider):
             source=self.name,
             quality_status="unsafe",
             quality_flags=["market_timestamp_unavailable_received_time_used"],
+            timestamp_provenance="receipt_only",
         )
 
     async def _history(self, symbol: str, start: date, end: date) -> Any:
@@ -122,6 +128,7 @@ class BDFinanceProvider(MarketDataProvider):
                     trade_count=int(row["trade"]) if row.get("trade") is not None else None,
                     turnover=Decimal(str(row["value"])) if row.get("value") is not None else None,
                     source=self.name,
+                    timestamp_provenance="provider_asserted",
                 )
             )
         return sorted(result, key=lambda item: item.timestamp)

@@ -79,4 +79,6 @@ def test_csv_missing_column_rejected(tmp_path) -> None:  # type: ignore[no-untyp
 
 def test_installed_real_provider_contracts_are_recognized() -> None:
     assert BDShareProvider().health_check()["healthy"] is True
-    assert BDFinanceProvider().health_check()["healthy"] is True
+    status = BDFinanceProvider().health_check()
+    assert status["healthy"] is False
+    assert "typing facade" in str(status["error"])

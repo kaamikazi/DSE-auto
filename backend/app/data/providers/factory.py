@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.data.providers.base import MarketDataProvider
 from app.data.providers.bdfinance_provider import BDFinanceProvider
 from app.data.providers.bdshare_provider import BDShareProvider
-from app.data.providers.csv_provider import CSVProvider
+from app.data.providers.csv_provider import CSVProvider, OperatorAttestedCSVProvider
 from app.data.providers.mock import MockProvider
 
 
@@ -15,7 +15,12 @@ def create_provider(name: str, csv_root: Path) -> MarketDataProvider:
     providers: dict[str, Callable[[], MarketDataProvider]] = {
         "mock": lambda: MockProvider(),
         "csv": lambda: CSVProvider(csv_root),
-        "bdshare": lambda: BDShareProvider(),
+        "attested_csv": lambda: OperatorAttestedCSVProvider(csv_root),
+        "bdshare": lambda: BDShareProvider(
+            settings.BDSHARE_PRIMARY_ENDPOINT,
+            settings.BDSHARE_SECONDARY_ENDPOINT,
+            settings.DSE_CUSTOM_CA_BUNDLE,
+        ),
         "bdfinance": lambda: BDFinanceProvider(),
     }
     name_lower = name.lower()

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+__DSE_AUTOTRADER_TYPE_FACADE__ = True
+
 
 class BDStockClient:
     def __init__(self, *args: Any, **kwargs: Any) -> None:

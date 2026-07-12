@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.schemas.market import DataComparison, QualityStatus, Quote
+from app.schemas.market import DataComparison, QualityStatus, Quote, TimestampProvenance
 
 
 def compare_quotes(
@@ -19,6 +19,11 @@ def compare_quotes(
         reasons.append("STALE_PRIMARY_DATA")
     if primary.quality_status == QualityStatus.UNSAFE:
         reasons.append("PRIMARY_DATA_UNSAFE")
+    if primary.timestamp_provenance not in {
+        TimestampProvenance.EXCHANGE_VERIFIED,
+        TimestampProvenance.OPERATOR_ATTESTED,
+    }:
+        reasons.append("INSUFFICIENT_TIMESTAMP_TRUST")
     disagreement: Decimal | None = None
     if secondary is not None:
         secondary_age = (now - secondary.market_timestamp).total_seconds()
@@ -41,6 +46,7 @@ def compare_quotes(
     blocking = {
         "STALE_PRIMARY_DATA",
         "PRIMARY_DATA_UNSAFE",
+        "INSUFFICIENT_TIMESTAMP_TRUST",
         "PROVIDER_PRICE_CONFLICT",
         "PROVIDER_PREVIOUS_CLOSE_CONFLICT",
     }

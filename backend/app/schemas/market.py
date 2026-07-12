@@ -13,6 +13,14 @@ class QualityStatus(StrEnum):
     UNSAFE = "unsafe"
 
 
+class TimestampProvenance(StrEnum):
+    EXCHANGE_VERIFIED = "exchange_verified"
+    PROVIDER_ASSERTED = "provider_asserted"
+    OPERATOR_ATTESTED = "operator_attested"
+    RECEIPT_ONLY = "receipt_only"
+    UNKNOWN = "unknown"
+
+
 class HistoricalBar(BaseModel):
     model_config = ConfigDict(extra="forbid")
     timestamp: datetime
@@ -28,6 +36,7 @@ class HistoricalBar(BaseModel):
     received_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     quality_status: QualityStatus = QualityStatus.VALID
     quality_flags: list[str] = Field(default_factory=list)
+    timestamp_provenance: TimestampProvenance = TimestampProvenance.UNKNOWN
 
     @model_validator(mode="after")
     def validate_range(self) -> HistoricalBar:
@@ -65,6 +74,7 @@ class Quote(BaseModel):
     stale: bool = False
     quality_status: QualityStatus = QualityStatus.VALID
     quality_flags: list[str] = Field(default_factory=list)
+    timestamp_provenance: TimestampProvenance = TimestampProvenance.UNKNOWN
 
     @model_validator(mode="after")
     def validate_quote(self) -> Quote:

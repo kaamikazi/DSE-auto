@@ -26,7 +26,7 @@ class CSVProvider(MarketDataProvider):
             supports_news=False,
             suitable_for_signals=True,
             suitable_for_order_approval=False,
-            limitation_reasons=["CSV data is historical/static, not current live market data"],
+            limitation_reasons=["Generic CSV data is not operator-attested for order approval"],
         )
 
     def _path(self, symbol: str) -> Path:
@@ -82,6 +82,7 @@ class CSVProvider(MarketDataProvider):
                         trade_count=int(row["trade_count"]) if row.get("trade_count") else None,
                         turnover=self._decimal(row, "turnover", required=False),
                         source=self.name,
+                        timestamp_provenance=row.get("timestamp_provenance", "unknown"),
                     )
                 )
         return sorted(result, key=lambda item: item.timestamp)
@@ -102,6 +103,7 @@ class CSVProvider(MarketDataProvider):
             turnover=bar.turnover,
             market_timestamp=bar.timestamp,
             source=self.name,
+            timestamp_provenance=bar.timestamp_provenance,
         )
 
     def get_market_summary(self) -> MarketSummary:
@@ -116,3 +118,40 @@ class CSVProvider(MarketDataProvider):
             "healthy": self.root.exists(),
             "symbols": len(self.get_symbols()),
         }
+
+
+class OperatorAttestedCSVProvider(CSVProvider):
+    name = "attested_csv"
+
+    def get_capabilities(self) -> ProviderCapability:
+        rows_attested = False
+        for symbol in self.get_symbols():
+            try:
+                rows_attested = bool(self._rows(symbol)) and all(
+                    row.get("timestamp_provenance") == "operator_attested"
+                    for row in self._rows(symbol)
+                )
+            except DataProviderError:
+                rows_attested = False
+            if rows_attested:
+                break
+        return ProviderCapability(
+            available=self.root.exists(),
+            authenticated=True,
+            supports_quotes=True,
+            supports_history=True,
+            trustworthy_market_timestamp=rows_attested,
+            supports_depth=False,
+            supports_news=False,
+            suitable_for_signals=rows_attested,
+            suitable_for_order_approval=rows_attested,
+            limitation_reasons=[] if rows_attested else ["No operator-attested CSV rows found"],
+        )
+
+    def get_history(self, symbol: str, start: date, end: date) -> list[HistoricalBar]:
+        result = super().get_history(symbol, start, end)
+        if any(item.timestamp_provenance != "operator_attested" for item in result):
+            raise DataProviderError(
+                "Every attested CSV row must declare operator_attested provenance"
+            )
+        return result

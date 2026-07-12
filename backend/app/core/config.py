@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     TEST_ONLY_MARKET_ORDERS_ENABLED: bool = False
     MARKET_CALENDAR_PATH: Path = Path("../config/dse_market_calendar.yaml")
     DSE_HOLIDAYS_PATH: Path = Path("../data/imports/dse_holidays.csv")
+    BDSHARE_PRIMARY_ENDPOINT: str = "https://dsebd.org/"
+    BDSHARE_SECONDARY_ENDPOINT: str = "https://dsebd.com.bd/"
+    DSE_CUSTOM_CA_BUNDLE: Path | None = None
 
     @field_validator("API_SECRET_KEY")
     @classmethod
@@ -57,6 +60,11 @@ class Settings(BaseSettings):
             raise ValueError("Unofficial broker automation is forbidden")
         if self.TEST_ONLY_MARKET_ORDERS_ENABLED and self.APP_ENV != "test":
             raise ValueError("Market orders may only be enabled in the test environment")
+        for endpoint in (self.BDSHARE_PRIMARY_ENDPOINT, self.BDSHARE_SECONDARY_ENDPOINT):
+            if not endpoint.startswith("https://"):
+                raise ValueError("DSE provider endpoints must use HTTPS")
+        if self.DSE_CUSTOM_CA_BUNDLE and not self.DSE_CUSTOM_CA_BUNDLE.is_file():
+            raise ValueError("DSE_CUSTOM_CA_BUNDLE must reference an existing CA bundle")
         return self
 
     @property
