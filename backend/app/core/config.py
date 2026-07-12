@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     SCHEDULER_ENABLED: bool = True
     SCHEDULER_STALE_AFTER_SECONDS: int = Field(default=3600, ge=60)
+    PAPER_SESSION_STALE_AFTER_SECONDS: int = Field(default=300, ge=60)
+    PAPER_FILL_MODEL: Literal["pessimistic", "balanced", "optimistic"] = "pessimistic"
+    TEST_ONLY_MARKET_ORDERS_ENABLED: bool = False
+    MARKET_CALENDAR_PATH: Path = Path("../config/dse_market_calendar.yaml")
+    DSE_HOLIDAYS_PATH: Path = Path("../data/imports/dse_holidays.csv")
 
     @field_validator("API_SECRET_KEY")
     @classmethod
@@ -47,6 +52,11 @@ class Settings(BaseSettings):
             )
         if self.BROKER_ADAPTER not in {"disabled", "paper"}:
             raise ValueError("Only the disabled or paper broker adapter is permitted")
+        forbidden = ("selenium", "playwright", "otp", "captcha", "broker_web", "unofficial")
+        if any(marker in self.BROKER_ADAPTER.lower() for marker in forbidden):
+            raise ValueError("Unofficial broker automation is forbidden")
+        if self.TEST_ONLY_MARKET_ORDERS_ENABLED and self.APP_ENV != "test":
+            raise ValueError("Market orders may only be enabled in the test environment")
         return self
 
     @property
