@@ -36,6 +36,11 @@ interface PaperSession {
   heartbeat_at: string | null;
 }
 
+interface ReadinessGate {
+  ready: boolean;
+  checks: Record<string, { passed: boolean; state?: string; provenance?: string }>;
+}
+
 const money = (value: string | number | null | undefined) =>
   value == null ? "৳0" : `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 
@@ -45,21 +50,24 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [schedHealth, setSchedHealth] = useState<SchedulerHealth | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [sessions, setSessions] = useState<PaperSession[]>([]);
+  const [readiness, setReadiness] = useState<ReadinessGate | null>(null);
 
   // Polling data every 3 seconds for real-time status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
-          fetch(`${API_URL}/paper-sessions`)
+          fetch(`${API_URL}/paper-sessions`),
+          fetch(`${API_URL}/paper-readiness?symbol=GP`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
         if (sRes.ok) setSchedHealth(await sRes.json());
         if (sessionRes.ok) setSessions(await sessionRes.json());
+        if (readinessRes.ok) setReadiness(await readinessRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -89,6 +97,18 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
       }
     } catch (err) {
       setMessage(`Failed: ${err}`);
+    }
+    setTimeout(() => setMessage(null), 5000);
+  };
+
+  const runReadOnlyCheck = async (label: string, path: string) => {
+    setMessage(`Running ${label}...`);
+    try {
+      const response = await fetch(`${API_URL}${path}`);
+      const data = await response.json();
+      setMessage(response.ok ? `${label}: ${data.chain_valid ?? data.application ?? "completed"}` : `${label} failed`);
+    } catch (err) {
+      setMessage(`${label} failed: ${err}`);
     }
     setTimeout(() => setMessage(null), 5000);
   };
@@ -159,6 +179,16 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
               <p className="mt-1 text-[11px] text-slate-500">Fill: {session.fill_model} · Heartbeat: {session.heartbeat_at ? new Date(session.heartbeat_at).toLocaleString() : "not started"}</p>
             </article>
           ))}
+        </div>
+        <div className="mt-4 border-t border-line pt-4">
+          <div className="flex items-center justify-between"><span className="text-sm font-semibold">Readiness gate</span><span className={`rounded px-2 py-1 text-xs font-mono ${readiness?.ready ? "bg-emerald-500/20 text-emerald-300" : "bg-red-500/20 text-red-300"}`}>{readiness?.ready ? "READY" : "BLOCKED"}</span></div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
+            {readiness && Object.entries(readiness.checks).map(([name, check]) => <div key={name} className="rounded border border-line px-2 py-2 text-[11px]"><span className="text-slate-400">{name}</span><span className={`float-right font-mono ${check.passed ? "text-emerald-300" : "text-red-400"}`}>{check.passed ? "PASS" : "BLOCK"}</span></div>)}
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <button onClick={() => runReadOnlyCheck("Verify data", "/health")} className="rounded border border-cyan/30 py-2 text-xs text-cyan">VERIFY DATA</button>
+            <button onClick={() => runReadOnlyCheck("Verify audit", "/audit")} className="rounded border border-cyan/30 py-2 text-xs text-cyan">VERIFY AUDIT</button>
+          </div>
         </div>
       </section>
 

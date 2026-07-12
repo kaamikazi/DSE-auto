@@ -31,12 +31,16 @@ from app.risk import RiskEngine
 from app.risk.kill_switch import get_state, set_state
 from app.schemas.sessions import PaperSessionCreate
 from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
-from app.services.audit import verify_audit_chain
+from app.services.audit import audit_status, verify_audit_chain
+from app.services.backups import backup_database
 from app.services.data_validation import compare_quotes
 from app.services.orders import approve_order, propose_order
 from app.services.paper_sessions import create_session, summary, transition_session
 from app.services.portfolio import add_transaction, derive_portfolio
 from app.services.portfolio_imports import commit_import, preview_import, reverse_import
+from app.services.readiness import evaluate_readiness
+from app.services.scheduler import end_of_day_snapshot_job, reconciliation_job
+from app.services.shadow_portfolio import compare_shadow_portfolios
 from app.services.signals import moving_average_signal
 
 router = APIRouter(prefix="/api/v1")
@@ -68,8 +72,48 @@ def list_paper_sessions(db: Db) -> list[dict[str, object]]:
     ]
 
 
+@router.get("/paper-readiness")
+def paper_readiness(
+    db: Db,
+    symbol: str = "GP",
+    operator_acknowledgement: str = "",
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
+    provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+    return cast(
+        dict[str, object],
+        evaluate_readiness(db, settings, provider, symbol, operator_acknowledgement),
+    )
+
+
+@router.post("/shadow-comparison", dependencies=[Depends(require_api_key)])
+def shadow_comparison(payload: dict[str, list[float]]) -> dict[str, object]:
+    try:
+        return cast(dict[str, object], compare_shadow_portfolios(payload))
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/operations/backup", dependencies=[Depends(require_api_key)])
+def operations_backup(db: Db, settings: Settings = Depends(get_settings)) -> dict[str, object]:
+    return cast(dict[str, object], backup_database(db, settings))
+
+
+@router.post("/operations/end-of-day", dependencies=[Depends(require_api_key)])
+def operations_end_of_day() -> dict[str, object]:
+    reconciliation_job()
+    end_of_day_snapshot_job()
+    return {"status": "completed", "paper_only": True}
+
+
 @router.post("/paper-sessions/{session_id}/{action}", dependencies=[Depends(require_api_key)])
-def change_paper_session(session_id: str, action: str, db: Db) -> dict[str, object]:
+def change_paper_session(
+    session_id: str,
+    action: str,
+    db: Db,
+    operator_acknowledgement: str = "",
+    settings: Settings = Depends(get_settings),
+) -> dict[str, object]:
     session = db.get(PaperSession, session_id)
     if session is None:
         raise HTTPException(404, "Paper session not found")
@@ -84,6 +128,17 @@ def change_paper_session(session_id: str, action: str, db: Db) -> dict[str, obje
     if action not in targets:
         raise HTTPException(422, "Unknown session action")
     try:
+        if action in {"start", "activate", "resume"}:
+            provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+            gate = evaluate_readiness(
+                db,
+                settings,
+                provider,
+                session.approved_universe[0],
+                operator_acknowledgement,
+            )
+            if not gate["ready"]:
+                raise ValueError(f"Paper-session readiness gate failed: {gate['checks']}")
         return summary(transition_session(db, session, targets[action], f"operator_{action}"))
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -403,6 +458,7 @@ def audit_events(db: Db) -> dict[str, object]:
     events = db.scalars(select(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(200)).all()
     return {
         "chain_valid": verify_audit_chain(db),
+        "status": audit_status(db),
         "events": [
             {
                 "id": event.id,
