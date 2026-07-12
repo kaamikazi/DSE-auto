@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.data.providers.base import DataProviderError, MarketDataProvider
+from app.data.providers.mock import MockProvider
 from app.data.providers.reliable import ReliableDataProvider
 from app.models import AuditEvent, JobExecution, Order, PaperAccount, RiskState
 from app.notifications.telegram import (
@@ -144,7 +145,7 @@ def test_provider_failover_and_circuit_breaker() -> None:
     primary.get_symbols.reset_mock()
     secondary.get_symbols.side_effect = None
     secondary.get_symbols.return_value = ["SUCCESS"]
-    
+
     res = reliable.get_symbols()
     assert res == ["SUCCESS"]
     # Primary get_symbols should not have been called because circuit was open
@@ -162,15 +163,12 @@ def test_telegram_unauthorized_chat(db: Session) -> None:
         },
     }
 
-
     # Handle update
     asyncio.run(handle_update(update))
 
     # Verify a security event was logged to audit chain
     event = db.scalar(
-        select(AuditEvent).where(
-            AuditEvent.event_type == "security.unauthorized_telegram_access"
-        )
+        select(AuditEvent).where(AuditEvent.event_type == "security.unauthorized_telegram_access")
     )
     assert event is not None
     assert "9999999" in event.actor
@@ -192,7 +190,6 @@ def test_telegram_expired_approval_token(db: Session) -> None:
     db.add(order)
     db.commit()
 
-
     # Call bot command handler
     reply = asyncio.run(approve_token_cmd("EXP123"))
     assert "expired" in reply
@@ -206,7 +203,7 @@ def test_telegram_expired_approval_token(db: Session) -> None:
 def test_revalidation_with_stale_timestamp(db: Session) -> None:
     settings = get_settings()
     now = datetime.now(UTC)
-    
+
     # 1. Stale primary quote
     primary_quote = Quote(
         symbol="GP",
@@ -256,7 +253,12 @@ def test_revalidation_with_stale_timestamp(db: Session) -> None:
     )
 
     decision = approve_order(
-        db, order, payload, RiskEngine(), max_data_age_seconds=settings.DATA_MAX_STALENESS_SECONDS
+        db,
+        order,
+        payload,
+        RiskEngine(),
+        max_data_age_seconds=settings.DATA_MAX_STALENESS_SECONDS,
+        provider=MockProvider(),
     )
     assert decision.approved is False
     assert "STALE_OR_UNSAFE_DATA" in decision.reason_codes

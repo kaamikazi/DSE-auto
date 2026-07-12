@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from app.brokers import PaperBroker
+from app.data.providers.mock import MockProvider
 from app.models import Order, PaperAccount, RiskState
 from app.risk import RiskEngine
 from app.schemas.trading import OrderProposalCreate
@@ -50,21 +51,21 @@ def test_emergency_stop_rejects_every_order() -> None:
 def test_stale_approval_fails_closed(db) -> None:  # type: ignore[no-untyped-def]
     seed(db)
     original = proposal()
-    order, decision = propose_order(db, original, RiskEngine(), 30)
+    order, decision = propose_order(db, original, RiskEngine(), 30, MockProvider())
     assert decision.approved and order.status == "awaiting_approval"
     stale = original.model_copy(
         update={"data_timestamp": datetime.now(UTC) - timedelta(minutes=10)}
     )
-    decision = approve_order(db, order, stale, RiskEngine(), 30)
+    decision = approve_order(db, order, stale, RiskEngine(), 30, MockProvider())
     assert decision.rejected and order.status == "risk_rejected"
 
 
 def test_duplicate_order_prevented(db) -> None:  # type: ignore[no-untyped-def]
     seed(db)
     payload = proposal()
-    propose_order(db, payload, RiskEngine(), 30)
+    propose_order(db, payload, RiskEngine(), 30, MockProvider())
     try:
-        propose_order(db, payload, RiskEngine(), 30)
+        propose_order(db, payload, RiskEngine(), 30, MockProvider())
         raise AssertionError("duplicate should fail")
     except ValueError as exc:
         assert "Duplicate" in str(exc)
