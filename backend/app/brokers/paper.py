@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.brokers.base import BrokerAdapter
+from app.brokers.dse_execution import DSEExecutionContext, DSEExecutionRules
 from app.models import Order, PaperAccount, Transaction
 from app.services.audit import append_audit
 
@@ -19,10 +20,14 @@ class PaperBroker(BrokerAdapter):
         *,
         participation_rate: Decimal = Decimal("0.10"),
         slippage_percent: Decimal = Decimal("0.10"),
+        fill_model: str = "pessimistic",
+        rules: DSEExecutionRules | None = None,
     ) -> None:
         self.db = db
         self.participation_rate = participation_rate
         self.slippage_percent = slippage_percent
+        self.fill_model = fill_model
+        self.rules = rules
 
     def _account(self) -> PaperAccount:
         account = self.db.get(PaperAccount, 1)
@@ -30,13 +35,46 @@ class PaperBroker(BrokerAdapter):
             raise RuntimeError("Paper account is not initialized")
         return account
 
-    def submit_order(self, order: Order, market_price: Decimal, available_volume: int) -> Order:
+    def submit_order(
+        self,
+        order: Order,
+        market_price: Decimal,
+        available_volume: int,
+        context: DSEExecutionContext | None = None,
+    ) -> Order:
         if order.status not in FILLABLE:
             raise ValueError(f"Order in {order.status} cannot be submitted")
         if order.order_type == "market":
             raise ValueError("Market orders are disabled")
         if order.limit_price is None:
             raise ValueError("Paper execution requires a limit price")
+        if context is not None and self.rules is not None:
+            if context.suspended or context.no_trade:
+                order.status = "submitted"
+                append_audit(
+                    self.db,
+                    actor="paper_broker",
+                    event_type="order.skipped",
+                    entity_type="order",
+                    entity_id=order.id,
+                    metadata={"reason": "suspended_or_no_trade", "fill_model": self.fill_model},
+                )
+                self.db.commit()
+                return order
+            lower, upper = self.rules.band(context.previous_close)
+            if order.side == "buy" and market_price >= upper:
+                raise ValueError("Buy blocked at configured limit-up band")
+            if order.side == "sell" and market_price <= lower:
+                raise ValueError("Sell blocked at configured limit-down band")
+            if context.available_volume < int(self.rules.config["minimum_liquidity"]):
+                raise ValueError("Minimum liquidity threshold not met")
+            if (
+                order.side == "sell"
+                and context.settled_quantity is not None
+                and context.settled_quantity < order.quantity - order.filled_quantity
+            ):
+                raise ValueError("Insufficient settled shares")
+            available_volume = self.rules.fillable_volume(context, self.fill_model)
         crosses = (
             order.limit_price >= market_price
             if order.side == "buy"
@@ -51,6 +89,7 @@ class PaperBroker(BrokerAdapter):
                 entity_type="order",
                 entity_id=order.id,
                 new_state={"status": order.status},
+                metadata={"fill_model": self.fill_model},
             )
             self.db.commit()
             return order
@@ -137,6 +176,7 @@ class PaperBroker(BrokerAdapter):
                 "filled_quantity": order.filled_quantity,
                 "average_fill_price": str(order.average_fill_price),
             },
+            metadata={"fill_model": self.fill_model},
         )
         self.db.commit()
         return order

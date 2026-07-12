@@ -55,9 +55,17 @@ def append_audit(
 
 
 def verify_audit_chain(db: Session) -> bool:
+    events = list(db.scalars(select(AuditEvent)))
+    successors: dict[str, list[AuditEvent]] = {}
+    for event in events:
+        successors.setdefault(event.previous_hash, []).append(event)
     previous = "0" * 64
-    for event in db.scalars(select(AuditEvent).order_by(AuditEvent.timestamp, AuditEvent.id)):
-        if event.previous_hash != previous:
+    visited: set[str] = set()
+    while candidates := successors.get(previous, []):
+        if len(candidates) != 1:
+            return False
+        event = candidates[0]
+        if event.integrity_hash in visited:
             return False
         canonical = json.dumps(
             {
@@ -76,5 +84,6 @@ def verify_audit_chain(db: Session) -> bool:
         )
         if hashlib.sha256(canonical.encode()).hexdigest() != event.integrity_hash:
             return False
+        visited.add(event.integrity_hash)
         previous = event.integrity_hash
-    return True
+    return len(visited) == len(events)

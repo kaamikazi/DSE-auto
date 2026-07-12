@@ -28,6 +28,14 @@ interface SchedulerHealth {
   jobs: Record<string, SchedulerJob>;
 }
 
+interface PaperSession {
+  id: string;
+  name: string;
+  state: string;
+  fill_model: string;
+  heartbeat_at: string | null;
+}
+
 const money = (value: string | number | null | undefined) =>
   value == null ? "৳0" : `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 
@@ -36,19 +44,22 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [portfolio, setPortfolio] = useState<Portfolio>(initialPortfolio);
   const [schedHealth, setSchedHealth] = useState<SchedulerHealth | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<PaperSession[]>([]);
 
   // Polling data every 3 seconds for real-time status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
-          fetch(`${API_URL}/scheduler/health`)
+          fetch(`${API_URL}/scheduler/health`),
+          fetch(`${API_URL}/paper-sessions`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
         if (sRes.ok) setSchedHealth(await sRes.json());
+        if (sessionRes.ok) setSessions(await sessionRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -133,6 +144,22 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
             <p className="mt-2 text-xs text-slate-500">{note}</p>
           </article>
         ))}
+      </section>
+
+      <section className="rounded-xl border border-line bg-panel p-5">
+        <div className="flex items-center justify-between">
+          <div><h2 className="font-semibold text-lg">Paper Operations</h2><p className="text-xs text-slate-500">Persistent sessions · DSE calendar gated · LIVE TRADING DISABLED</p></div>
+          <span className="rounded bg-amber-500/15 px-3 py-1 text-xs font-mono text-amber-300">DEFAULT FILL: PESSIMISTIC</span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {(sessions.length ? sessions : [{ id: "none", name: "No configured session", state: "stopped", fill_model: "pessimistic", heartbeat_at: null }]).slice(0, 3).map(session => (
+            <article key={session.id} className="rounded-lg border border-line bg-[#0f192b] p-4">
+              <p className="font-semibold text-cyan">{session.name}</p>
+              <p className="mt-2 text-xs uppercase tracking-wider text-slate-300">{session.state}</p>
+              <p className="mt-1 text-[11px] text-slate-500">Fill: {session.fill_model} · Heartbeat: {session.heartbeat_at ? new Date(session.heartbeat_at).toLocaleString() : "not started"}</p>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
