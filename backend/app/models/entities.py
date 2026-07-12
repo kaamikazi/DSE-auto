@@ -148,3 +148,45 @@ class PaperAccount(Base):
     starting_cash: Mapped[Decimal] = mapped_column(Numeric(24, 4))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     as_of: Mapped[date] = mapped_column(Date, default=date.today)
+
+
+class PaperSession(Base):
+    __tablename__ = "paper_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    account_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    state: Mapped[str] = mapped_column(String(32), default="configured", index=True)
+    starting_cash: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    approved_universe: Mapped[list[str]] = mapped_column(JSON, default=list)
+    strategies: Mapped[list[str]] = mapped_column(JSON, default=list)
+    risk_profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    fill_model: Mapped[str] = mapped_column(String(16), default="pessimistic")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PaperSessionRun(Base):
+    __tablename__ = "paper_session_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(36), index=True)
+    run_type: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str | None] = mapped_column(Text)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ImportBatch(Base):
+    __tablename__ = "import_batches"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    source_name: Mapped[str] = mapped_column(String(255))
+    source_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="previewed")
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    transaction_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

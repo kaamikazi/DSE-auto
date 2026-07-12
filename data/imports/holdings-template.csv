@@ -1,0 +1,2 @@
+occurred_at,transaction_type,symbol,quantity,price,fees,taxes,broker,account_label,notes
+2026-01-01T10:00:00+06:00,buy,GP,10,250,10,0,manual,reference,example only

@@ -21,16 +21,12 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     # Add columns to orders table
-    op.add_column(
-        "orders", sa.Column("approval_token", sa.String(length=32), nullable=True)
-    )
+    op.add_column("orders", sa.Column("approval_token", sa.String(length=32), nullable=True))
     op.add_column(
         "orders",
         sa.Column("approval_token_expires_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index(
-        op.f("ix_orders_approval_token"), "orders", ["approval_token"], unique=False
-    )
+    op.create_index(op.f("ix_orders_approval_token"), "orders", ["approval_token"], unique=False)
 
     # Create job_executions table
     op.create_table(

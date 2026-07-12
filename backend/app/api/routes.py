@@ -18,18 +18,100 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.data.providers import DataProviderError, create_provider
-from app.models import AuditEvent, JobExecution, Order, Signal, Transaction
+from app.models import (
+    AuditEvent,
+    ImportBatch,
+    JobExecution,
+    Order,
+    PaperSession,
+    Signal,
+    Transaction,
+)
 from app.risk import RiskEngine
 from app.risk.kill_switch import get_state, set_state
+from app.schemas.sessions import PaperSessionCreate
 from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
 from app.services.audit import verify_audit_chain
 from app.services.data_validation import compare_quotes
 from app.services.orders import approve_order, propose_order
+from app.services.paper_sessions import create_session, summary, transition_session
 from app.services.portfolio import add_transaction, derive_portfolio
+from app.services.portfolio_imports import commit_import, preview_import, reverse_import
 from app.services.signals import moving_average_signal
 
 router = APIRouter(prefix="/api/v1")
 Db = Annotated[Session, Depends(get_db)]
+
+
+@router.post("/paper-sessions", dependencies=[Depends(require_api_key)])
+def configure_paper_session(payload: PaperSessionCreate, db: Db) -> dict[str, object]:
+    try:
+        return summary(
+            create_session(
+                db,
+                payload.name,
+                payload.approved_universe,
+                payload.strategies,
+                payload.risk_profile,
+                payload.fill_model,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/paper-sessions")
+def list_paper_sessions(db: Db) -> list[dict[str, object]]:
+    return [
+        summary(item)
+        for item in db.scalars(select(PaperSession).order_by(PaperSession.created_at.desc()))
+    ]
+
+
+@router.post("/paper-sessions/{session_id}/{action}", dependencies=[Depends(require_api_key)])
+def change_paper_session(session_id: str, action: str, db: Db) -> dict[str, object]:
+    session = db.get(PaperSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Paper session not found")
+    targets = {
+        "start": "warming_up",
+        "activate": "running",
+        "pause": "paused",
+        "resume": "running",
+        "stop": "stopped",
+        "complete": "completed",
+    }
+    if action not in targets:
+        raise HTTPException(422, "Unknown session action")
+    try:
+        return summary(transition_session(db, session, targets[action], f"operator_{action}"))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/portfolio/import-preview", dependencies=[Depends(require_api_key)])
+async def portfolio_import_preview(db: Db, file: UploadFile = File(...)) -> dict[str, object]:
+    return cast(
+        dict[str, object], preview_import(db, file.filename or "upload.csv", await file.read())
+    )
+
+
+@router.post("/portfolio/import-commit", dependencies=[Depends(require_api_key)])
+async def portfolio_import_commit(db: Db, file: UploadFile = File(...)) -> dict[str, object]:
+    try:
+        batch = commit_import(db, file.filename or "upload.csv", await file.read())
+        return {"batch_id": batch.id, "status": batch.status, "rows": batch.row_count}
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.post("/portfolio/imports/{batch_id}/reverse", dependencies=[Depends(require_api_key)])
+def portfolio_import_reverse(batch_id: str, db: Db) -> dict[str, object]:
+    batch = db.get(ImportBatch, batch_id)
+    if batch is None:
+        raise HTTPException(404, "Import batch not found")
+    reverse_import(db, batch)
+    return {"batch_id": batch.id, "status": batch.status}
 
 
 def _server_validated_proposal(

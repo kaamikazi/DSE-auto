@@ -15,6 +15,10 @@ logger = logging.getLogger(__name__)
 
 def run_startup_recovery(db) -> None:  # type: ignore[no-untyped-def]
     """Scans for active orders during restart and reconciles paper trading state."""
+    from app.core.config import get_settings
+    from app.services.paper_sessions import recover_stale_sessions
+
+    recover_stale_sessions(db, get_settings().PAPER_SESSION_STALE_AFTER_SECONDS)
     logger.info("Executing startup diagnostics and state reconciliation...")
 
     # 1. Clean up stale/expired proposals
