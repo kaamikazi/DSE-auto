@@ -139,6 +139,19 @@ class AuditEvent(Base):
     event_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, default=dict)
     previous_hash: Mapped[str] = mapped_column(String(64))
     integrity_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    chain_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+
+
+class AuditChain(Base):
+    __tablename__ = "audit_chains"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    genesis_reason: Mapped[str] = mapped_column(Text)
+    operator_acknowledgement: Mapped[str] = mapped_column(Text)
+    legacy_archive_path: Mapped[str] = mapped_column(Text)
+    legacy_archive_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class PaperAccount(Base):

@@ -1,4 +1,5 @@
 from app.models.entities import (
+    AuditChain,
     AuditEvent,
     ImportBatch,
     JobExecution,
@@ -14,6 +15,7 @@ from app.models.entities import (
 
 __all__ = [
     "AuditEvent",
+    "AuditChain",
     "JobExecution",
     "ImportBatch",
     "MarketBar",
