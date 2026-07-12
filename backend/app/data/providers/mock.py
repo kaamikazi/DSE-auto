@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, Quote
+from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
 
 SYMBOLS = ["GP", "SQURPHARMA", "BRACBANK", "BATBC", "ACI", "RENATA", "CITYBANK", "BEXIMCO", "DSEX"]
 
@@ -17,6 +17,27 @@ class MockProvider(MarketDataProvider):
     def __init__(self, now: datetime | None = None, stale: bool = False) -> None:
         self.now = now or datetime.now(UTC)
         self.stale = stale
+
+    def get_capabilities(self) -> ProviderCapability:
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        # suitable for order approval only inside test mode
+        suitable = settings.APP_ENV == "test" or getattr(settings, "ALLOW_MOCK_APPROVALS", False)
+        return ProviderCapability(
+            available=True,
+            authenticated=True,
+            supports_quotes=True,
+            supports_history=True,
+            trustworthy_market_timestamp=True,
+            supports_depth=True,
+            supports_news=True,
+            suitable_for_signals=True,
+            suitable_for_order_approval=suitable,
+            limitation_reasons=[]
+            if suitable
+            else ["Mock data cannot approve orders outside test mode"],
+        )
 
     def get_symbols(self) -> list[str]:
         return SYMBOLS[:-1]

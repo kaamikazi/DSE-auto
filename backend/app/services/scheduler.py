@@ -41,12 +41,33 @@ def logged_job(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             # 1. Prevent overlapping
             with SessionLocal() as db:
-                one_hour_ago = datetime.now(UTC) - timedelta(hours=1)
+                now = datetime.now(UTC)
+                stale_before = now - timedelta(seconds=get_settings().SCHEDULER_STALE_AFTER_SECONDS)
+                stale_runs = db.scalars(
+                    select(JobExecution)
+                    .where(JobExecution.job_name == job_name)
+                    .where(JobExecution.status == "running")
+                    .where(JobExecution.started_at < stale_before)
+                ).all()
+                for stale in stale_runs:
+                    stale.status = "failed"
+                    stale.finished_at = now
+                    stale.error_message = "STALE_WORKER_DETECTED"
+                if stale_runs:
+                    append_audit(
+                        db,
+                        actor="scheduler",
+                        event_type="job.stale_worker_recovered",
+                        entity_type="job",
+                        entity_id=job_name,
+                        metadata={"run_ids": [run.id for run in stale_runs]},
+                    )
+                    db.commit()
                 active = db.scalar(
                     select(JobExecution)
                     .where(JobExecution.job_name == job_name)
                     .where(JobExecution.status == "running")
-                    .where(JobExecution.started_at >= one_hour_ago)
+                    .where(JobExecution.started_at >= stale_before)
                 )
                 if active:
                     logger.warning("Overlapping execution of job %s blocked.", job_name)
@@ -187,11 +208,32 @@ def report_generation_job() -> None:
         from app.services.portfolio import derive_portfolio
 
         view = derive_portfolio(db)
-        report_path = (
-            settings.CSV_DATA_DIR.parent / "reports" / "daily_snapshot.json"
-        )
+        report_path = settings.CSV_DATA_DIR.parent / "reports" / "daily_snapshot.json"
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(view.to_json() if hasattr(view, "to_json") else view.model_dump_json())
+        report_path.write_text(
+            view.to_json() if hasattr(view, "to_json") else view.model_dump_json()
+        )
+
+
+@logged_job("end_of_day_snapshot")
+def end_of_day_snapshot_job() -> None:
+    """Persist the paper account state independently of report rendering."""
+    settings = get_settings()
+    with SessionLocal() as db:
+        from app.services.portfolio import derive_portfolio
+
+        view = derive_portfolio(db)
+        snapshot_path = settings.CSV_DATA_DIR.parent / "reports" / "end_of_day_snapshot.json"
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot_path.write_text(view.model_dump_json(), encoding="utf-8")
+        append_audit(
+            db,
+            actor="scheduler",
+            event_type="paper.end_of_day_snapshot",
+            entity_type="portfolio",
+            new_state={"path": str(snapshot_path), "captured_at": datetime.now(UTC).isoformat()},
+        )
+        db.commit()
 
 
 # Background scheduler global instance
@@ -202,7 +244,10 @@ def start_scheduler() -> None:
     global _scheduler
     if _scheduler is not None:
         return
-    _scheduler = BackgroundScheduler()
+    _scheduler = BackgroundScheduler(
+        timezone="UTC",
+        job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 300},
+    )
 
     # Schedule tasks
     _scheduler.add_job(refresh_quotes_job, "interval", minutes=1, id="refresh_quotes")
@@ -213,11 +258,10 @@ def start_scheduler() -> None:
     # Daily snapshots
     _scheduler.add_job(reconciliation_job, "cron", hour=17, minute=0, id="reconciliation")
     _scheduler.add_job(
-        report_generation_job, "cron", hour=17, minute=30, id="report_generation"
+        end_of_day_snapshot_job, "cron", hour=17, minute=15, id="end_of_day_snapshot"
     )
-    _scheduler.add_job(
-        historical_backfill_job, "cron", hour=18, minute=0, id="historical_backfill"
-    )
+    _scheduler.add_job(report_generation_job, "cron", hour=17, minute=30, id="report_generation")
+    _scheduler.add_job(historical_backfill_job, "cron", hour=18, minute=0, id="historical_backfill")
 
     _scheduler.start()
     logger.info("APScheduler started background jobs successfully.")

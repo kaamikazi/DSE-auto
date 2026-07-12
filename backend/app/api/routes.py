@@ -190,8 +190,9 @@ def create_proposal(
 ) -> dict[str, object]:
     try:
         payload = _server_validated_proposal(payload, settings)
+        provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
         order, decision = propose_order(
-            db, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS
+            db, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS, provider
         )
         return {
             "order_id": order.id,
@@ -214,8 +215,9 @@ def approve(
         raise HTTPException(404, "Order not found")
     try:
         payload = _server_validated_proposal(payload, settings)
+        provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
         decision = approve_order(
-            db, order, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS
+            db, order, payload, RiskEngine(), settings.DATA_MAX_STALENESS_SECONDS, provider
         )
         return {
             "order_id": order.id,
@@ -336,9 +338,7 @@ def audit_events(db: Db) -> dict[str, object]:
 
 @router.get("/scheduler/runs")
 def scheduler_runs(db: Db) -> list[dict[str, object]]:
-    runs = db.scalars(
-        select(JobExecution).order_by(JobExecution.started_at.desc()).limit(50)
-    ).all()
+    runs = db.scalars(select(JobExecution).order_by(JobExecution.started_at.desc()).limit(50)).all()
     return [
         {
             "id": r.id,

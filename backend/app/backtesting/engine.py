@@ -186,14 +186,10 @@ def run_backtest(
 
     # 2. Base metrics
     values = [float(cast(float, item["equity"])) for item in curve]
-    returns = [
-        values[i] / values[i - 1] - 1 for i in range(1, len(values)) if values[i - 1]
-    ]
+    returns = [values[i] / values[i - 1] - 1 for i in range(1, len(values)) if values[i - 1]]
     total_return = values[-1] / float(request.starting_capital) - 1
     years = max(len(values) / 252, 1 / 252)
-    annualized = (
-        (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
-    )
+    annualized = (1 + total_return) ** (1 / years) - 1 if total_return > -1 else -1.0
     volatility = pstdev(returns) * math.sqrt(252) if len(returns) > 1 else 0.0
     downside = [value for value in returns if value < 0]
     peak = values[0]
@@ -239,18 +235,12 @@ def run_backtest(
     gross_profit = sum(wins)
     gross_loss = sum(map(abs, losses))
     profit_factor = (
-        gross_profit / gross_loss
-        if gross_loss > 0
-        else (float("inf") if gross_profit > 0 else 1.0)
+        gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 1.0)
     )
 
     total_traded_value = sum(t.price * t.quantity for t in trades)
     turnover = total_traded_value / float(request.starting_capital)
-    alpha = (
-        (annualized - benchmark_return)
-        if benchmark_return is not None
-        else 0.0
-    )
+    alpha = (annualized - benchmark_return) if benchmark_return is not None else 0.0
 
     metrics: dict[str, float | int | None] = {
         "total_return_percent": total_return * 100,
@@ -283,7 +273,7 @@ def run_backtest(
     if not is_subrun and len(bars) >= 100:
         splits = walk_forward_splits(len(bars), 50, 25, 25)
         for i, (_train_idx, _val_idx, test_idx) in enumerate(splits[:3]):
-            part_name = f"split_{i+1}_test"
+            part_name = f"split_{i + 1}_test"
             test_bars = [bars[idx] for idx in test_idx]
             test_bench = (
                 [benchmark[idx] for idx in test_idx]
@@ -318,9 +308,7 @@ def run_backtest(
                 sensitivity.append(
                     ParameterSensitivity(
                         parameters=p,
-                        total_return_percent=cast(
-                            float, sub_res.metrics["total_return_percent"]
-                        ),
+                        total_return_percent=cast(float, sub_res.metrics["total_return_percent"]),
                         sharpe_ratio=cast(float | None, sub_res.metrics["sharpe_ratio"]),
                         max_drawdown_percent=cast(
                             float, sub_res.metrics["maximum_drawdown_percent"]

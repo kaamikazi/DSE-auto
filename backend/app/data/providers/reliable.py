@@ -12,6 +12,7 @@ from app.schemas.market import (
     HistoricalBar,
     MarketSummary,
     NewsItem,
+    ProviderCapability,
     QualityStatus,
     Quote,
 )
@@ -78,12 +79,8 @@ class ReliableDataProvider(MarketDataProvider):
     ) -> None:
         self.primary = primary
         self.secondary = secondary
-        self.primary_breaker = CircuitBreaker(
-            primary.name, failure_threshold, cooldown_seconds
-        )
-        self.secondary_breaker = CircuitBreaker(
-            secondary.name, failure_threshold, cooldown_seconds
-        )
+        self.primary_breaker = CircuitBreaker(primary.name, failure_threshold, cooldown_seconds)
+        self.secondary_breaker = CircuitBreaker(secondary.name, failure_threshold, cooldown_seconds)
         self.max_disagreement_percent = max_disagreement_percent
         self.max_staleness_seconds = max_staleness_seconds
 
@@ -126,6 +123,11 @@ class ReliableDataProvider(MarketDataProvider):
         raise DataProviderError(
             f"All providers are currently offline/circuits open. Primary tried={primary_tried}"
         )
+
+    def get_capabilities(self) -> ProviderCapability:
+        if self.primary_breaker.can_execute():
+            return self.primary.get_capabilities()
+        return self.secondary.get_capabilities()
 
     def get_symbols(self) -> list[str]:
         return cast(list[str], self._execute("get_symbols"))
@@ -171,8 +173,7 @@ class ReliableDataProvider(MarketDataProvider):
                 primary_quote = primary_quote.model_copy(
                     update={
                         "quality_status": QualityStatus.UNSAFE,
-                        "quality_flags": primary_quote.quality_flags
-                        + comparison.reason_codes,
+                        "quality_flags": primary_quote.quality_flags + comparison.reason_codes,
                     }
                 )
             return primary_quote

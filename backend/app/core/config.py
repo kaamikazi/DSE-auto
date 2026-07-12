@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     TRADING_MODE: Literal["paper", "live"] = "paper"
     TELEGRAM_BOT_TOKEN: str | None = None
     TELEGRAM_CHAT_ID: str | None = None
+    TELEGRAM_ALLOWED_CHAT_IDS: str = ""
     DATA_PRIMARY_PROVIDER: str = "mock"
     DATA_SECONDARY_PROVIDER: str = "csv"
     DATA_MAX_STALENESS_SECONDS: int = Field(default=30, ge=1)
@@ -28,6 +29,8 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000"
     CSV_DATA_DIR: Path = Path("./data/imports")
     LOG_LEVEL: str = "INFO"
+    SCHEDULER_ENABLED: bool = True
+    SCHEDULER_STALE_AFTER_SECONDS: int = Field(default=3600, ge=60)
 
     @field_validator("API_SECRET_KEY")
     @classmethod
@@ -39,7 +42,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def fail_closed_live_configuration(self) -> Settings:
         if self.TRADING_MODE == "live" or self.LIVE_TRADING_ENABLED:
-            raise ValueError("Live trading is unavailable in Milestone 1; use paper/false")
+            raise ValueError(
+                "Live trading is disabled; use TRADING_MODE=paper and LIVE_TRADING_ENABLED=false"
+            )
         if self.BROKER_ADAPTER not in {"disabled", "paper"}:
             raise ValueError("Only the disabled or paper broker adapter is permitted")
         return self
@@ -47,6 +52,15 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [item.strip() for item in self.ALLOWED_ORIGINS.split(",") if item.strip()]
+
+    @property
+    def telegram_allowed_chat_ids(self) -> set[str]:
+        configured = {
+            item.strip() for item in self.TELEGRAM_ALLOWED_CHAT_IDS.split(",") if item.strip()
+        }
+        if self.TELEGRAM_CHAT_ID:
+            configured.add(self.TELEGRAM_CHAT_ID.strip())
+        return configured
 
 
 @lru_cache

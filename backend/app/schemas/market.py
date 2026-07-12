@@ -109,3 +109,16 @@ class NewsItem(BaseModel):
     url: str | None = None
     source: str
     price_sensitive: bool = False
+
+
+class ProviderCapability(BaseModel):
+    available: bool
+    authenticated: bool
+    supports_quotes: bool
+    supports_history: bool
+    trustworthy_market_timestamp: bool
+    supports_depth: bool
+    supports_news: bool
+    suitable_for_signals: bool
+    suitable_for_order_approval: bool
+    limitation_reasons: list[str]

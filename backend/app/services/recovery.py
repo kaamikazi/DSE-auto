@@ -6,10 +6,9 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from app.models import Order, PaperAccount
+from app.models import Order, PaperAccount, Transaction
 from app.risk.kill_switch import get_state, set_state
 from app.services.audit import append_audit
-from app.services.portfolio import derive_portfolio
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +51,33 @@ def run_startup_recovery(db) -> None:  # type: ignore[no-untyped-def]
 
     # 2. Re-check active submitted/partially filled orders
     open_count = db.scalar(
-        select(Order)
-        .where(Order.status.in_(["submitted", "partially_filled"]))
-        .limit(1)
+        select(Order).where(Order.status.in_(["submitted", "partially_filled"])).limit(1)
     )
 
     # 3. Portfolio reconciliation check
     account = db.get(PaperAccount, 1)
     if account:
         try:
-            view = derive_portfolio(db)
-            # Compare derived cash with stored cash
-            if abs(account.cash - view.cash) > Decimal("0.01"):
-                raise ValueError("Stored cash and derived transaction history cash mismatch")
+            derived_cash = account.starting_cash
+            transactions = db.scalars(select(Transaction)).all()
+            for t in transactions:
+                qty, prc, fee, tax = t.quantity, t.price, t.fees, t.taxes
+                if t.transaction_type in {"buy", "rights"}:
+                    derived_cash -= qty * prc + fee + tax
+                elif t.transaction_type == "sell":
+                    derived_cash += qty * prc - fee - tax
+                elif t.transaction_type == "dividend":
+                    derived_cash += prc if qty == 0 else qty * prc
+                elif t.transaction_type == "fee":
+                    derived_cash -= fee or prc
+                elif t.transaction_type == "tax":
+                    derived_cash -= tax or prc
+                elif t.transaction_type == "adjustment":
+                    derived_cash += prc
+            if abs(account.cash - derived_cash) > Decimal("0.01"):
+                raise ValueError(
+                    f"Stored cash {account.cash} and derived cash {derived_cash} mismatch"
+                )
         except Exception as exc:
             logger.error("Portfolio reconciliation check failed: %s", exc)
             set_state(

@@ -7,7 +7,14 @@ from decimal import Decimal
 from typing import Any
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import CompanyInfo, HistoricalBar, MarketSummary, NewsItem, Quote
+from app.schemas.market import (
+    CompanyInfo,
+    HistoricalBar,
+    MarketSummary,
+    NewsItem,
+    ProviderCapability,
+    Quote,
+)
 
 
 def _run[T](awaitable: Coroutine[Any, Any, T]) -> T:
@@ -23,6 +30,28 @@ class BDFinanceProvider(MarketDataProvider):
     """Normalized sync facade for bdfinance's async BDStockClient."""
 
     name = "bdfinance"
+
+    def get_capabilities(self) -> ProviderCapability:
+        try:
+            self._client_type()
+            installed = True
+        except Exception:
+            installed = False
+
+        return ProviderCapability(
+            available=installed,
+            authenticated=False,
+            supports_quotes=installed,
+            supports_history=installed,
+            trustworthy_market_timestamp=False,
+            supports_depth=installed,
+            supports_news=installed,
+            suitable_for_signals=installed,
+            suitable_for_order_approval=False,
+            limitation_reasons=["bdfinance package is not installed in python environment"]
+            if not installed
+            else ["bdfinance quotes lack exchange execution timestamps"],
+        )
 
     @staticmethod
     def _client_type() -> Any:

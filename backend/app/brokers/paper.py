@@ -184,10 +184,29 @@ class PaperBroker(BrokerAdapter):
             .group_by(Order.idempotency_key)
             .having(__import__("sqlalchemy").func.count() > 1)
         )
+        derived_cash = account.starting_cash
+        transactions = self.db.scalars(select(Transaction)).all()
+        for t in transactions:
+            qty, prc, fee, tax = t.quantity, t.price, t.fees, t.taxes
+            if t.transaction_type in {"buy", "rights"}:
+                derived_cash -= qty * prc + fee + tax
+            elif t.transaction_type == "sell":
+                derived_cash += qty * prc - fee - tax
+            elif t.transaction_type == "dividend":
+                derived_cash += prc if qty == 0 else qty * prc
+            elif t.transaction_type == "fee":
+                derived_cash -= fee or prc
+            elif t.transaction_type == "tax":
+                derived_cash -= tax or prc
+            elif t.transaction_type == "adjustment":
+                derived_cash += prc
+        cash_reconciled = abs(account.cash - derived_cash) <= Decimal("0.01")
         return {
-            "healthy": duplicate_count is None and account.cash >= 0,
+            "healthy": duplicate_count is None and account.cash >= 0 and cash_reconciled,
             "cash": str(account.cash),
+            "derived_cash": str(derived_cash),
             "duplicate_orders": duplicate_count is not None,
+            "cash_reconciled": cash_reconciled,
         }
 
     def reset_account(self, starting_cash: Decimal) -> None:

@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, Quote
+from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
 
 
 class CSVProvider(MarketDataProvider):
@@ -14,6 +14,20 @@ class CSVProvider(MarketDataProvider):
 
     def __init__(self, root: Path) -> None:
         self.root = root
+
+    def get_capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            available=True,
+            authenticated=True,
+            supports_quotes=True,
+            supports_history=True,
+            trustworthy_market_timestamp=False,
+            supports_depth=False,
+            supports_news=False,
+            suitable_for_signals=True,
+            suitable_for_order_approval=False,
+            limitation_reasons=["CSV data is historical/static, not current live market data"],
+        )
 
     def _path(self, symbol: str) -> Path:
         return self.root / f"{symbol.upper()}.csv"

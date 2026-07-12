@@ -37,9 +37,7 @@ def create_provider(name: str, csv_root: Path) -> MarketDataProvider:
         return ReliableDataProvider(
             primary,
             secondary,
-            max_disagreement_percent=Decimal(
-                str(settings.DATA_MAX_PROVIDER_DISAGREEMENT_PERCENT)
-            ),
+            max_disagreement_percent=Decimal(str(settings.DATA_MAX_PROVIDER_DISAGREEMENT_PERCENT)),
             max_staleness_seconds=settings.DATA_MAX_STALENESS_SECONDS,
         )
     try:

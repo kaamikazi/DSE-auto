@@ -5,13 +5,27 @@ from decimal import Decimal
 from typing import Any
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, Quote
+from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
 
 
 class BDShareProvider(MarketDataProvider):
     """Optional bdshare adapter. Imports lazily so offline mode never depends on it."""
 
     name = "bdshare"
+
+    def get_capabilities(self) -> ProviderCapability:
+        return ProviderCapability(
+            available=True,
+            authenticated=False,
+            supports_quotes=True,
+            supports_history=True,
+            trustworthy_market_timestamp=False,
+            supports_depth=True,
+            supports_news=True,
+            suitable_for_signals=True,
+            suitable_for_order_approval=False,
+            limitation_reasons=["Public scraped DSE quotes lack exchange execution timestamps"],
+        )
 
     @staticmethod
     def _module() -> Any:

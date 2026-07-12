@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.data.providers.base import MarketDataProvider
 from app.models import Order, PaperAccount
 from app.notifications.telegram import send_telegram_alert
 from app.risk.engine import RiskEngine
@@ -18,11 +19,54 @@ from app.services.audit import append_audit
 
 
 def propose_order(
-    db: Session, payload: OrderProposalCreate, engine: RiskEngine, max_data_age_seconds: int
+    db: Session,
+    payload: OrderProposalCreate,
+    engine: RiskEngine,
+    max_data_age_seconds: int,
+    provider: MarketDataProvider,
 ) -> tuple[Order, RiskDecision]:
     existing = db.scalar(select(Order).where(Order.idempotency_key == payload.idempotency_key))
     if existing:
         raise ValueError(f"Duplicate order idempotency key; existing order {existing.id}")
+
+    capabilities = provider.get_capabilities()
+    if not capabilities.suitable_for_order_approval:
+        decision = RiskDecision(
+            approved=False,
+            rejected=True,
+            reason_codes=["UNSAFE_PROVIDER"],
+            reasons=[
+                f"Provider {provider.name} is not suitable for order approval: {capabilities.limitation_reasons}"
+            ],
+            input_snapshot={"provider": provider.name},
+            risk_rule_version="1.0.0",
+            timestamp=datetime.now(UTC),
+        )
+        order = Order(
+            idempotency_key=payload.idempotency_key,
+            symbol=payload.symbol,
+            side=payload.side,
+            order_type=payload.order_type,
+            quantity=payload.quantity,
+            limit_price=payload.limit_price,
+            stop_price=payload.stop_price,
+            strategy_id=payload.strategy_id,
+            expires_at=payload.expires_at,
+            status="risk_rejected",
+        )
+        db.add(order)
+        db.flush()
+        append_audit(
+            db,
+            actor="system",
+            event_type="risk.decision",
+            entity_type="order",
+            entity_id=order.id,
+            new_state=decision.model_dump(mode="json"),
+        )
+        db.commit()
+        return order, decision
+
     account = db.get(PaperAccount, 1)
     portfolio_value = account.cash if account else Decimal("0")
     state = get_state(db)
@@ -113,6 +157,7 @@ def approve_order(
     payload: OrderProposalCreate,
     engine: RiskEngine,
     max_data_age_seconds: int,
+    provider: MarketDataProvider,
 ) -> RiskDecision:
     if order.status != "awaiting_approval":
         raise ValueError(f"Order in {order.status} is not awaiting approval")
@@ -120,6 +165,32 @@ def approve_order(
         order.status = "expired"
         db.commit()
         raise ValueError("Proposal expired")
+
+    capabilities = provider.get_capabilities()
+    if not capabilities.suitable_for_order_approval:
+        decision = RiskDecision(
+            approved=False,
+            rejected=True,
+            reason_codes=["UNSAFE_PROVIDER"],
+            reasons=[
+                f"Provider {provider.name} is not suitable for order approval: {capabilities.limitation_reasons}"
+            ],
+            input_snapshot={"provider": provider.name},
+            risk_rule_version="1.0.0",
+            timestamp=datetime.now(UTC),
+        )
+        order.status = "risk_rejected"
+        append_audit(
+            db,
+            actor="user",
+            event_type="order.approval_revalidated",
+            entity_type="order",
+            entity_id=order.id,
+            new_state=decision.model_dump(mode="json"),
+        )
+        db.commit()
+        return decision
+
     state = get_state(db)
     account = db.get(PaperAccount, 1)
     decision = engine.evaluate(

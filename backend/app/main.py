@@ -13,6 +13,7 @@ from app.api import router
 from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.logging import configure_logging
+from app.core.rate_limit import RateLimitMiddleware
 from app.models import PaperAccount, RiskState
 from app.notifications.telegram import start_bot_polling, stop_bot_polling
 from app.services.audit import append_audit
@@ -44,7 +45,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         )
         db.commit()
     logger.info("DSE AutoTrader started in PAPER mode; live execution is unavailable")
-    start_scheduler()
+    if settings.SCHEDULER_ENABLED:
+        start_scheduler()
     start_bot_polling()
     yield
     stop_bot_polling()
@@ -60,6 +62,7 @@ app.add_middleware(
     allow_headers=["Content-Type", "X-API-Key"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"])
+app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
 app.include_router(router)
 
 

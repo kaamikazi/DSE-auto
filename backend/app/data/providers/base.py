@@ -4,7 +4,14 @@ from abc import ABC, abstractmethod
 from datetime import date
 from decimal import Decimal
 
-from app.schemas.market import CompanyInfo, HistoricalBar, MarketSummary, NewsItem, Quote
+from app.schemas.market import (
+    CompanyInfo,
+    HistoricalBar,
+    MarketSummary,
+    NewsItem,
+    ProviderCapability,
+    Quote,
+)
 
 
 class DataProviderError(RuntimeError):
@@ -13,6 +20,9 @@ class DataProviderError(RuntimeError):
 
 class MarketDataProvider(ABC):
     name: str
+
+    @abstractmethod
+    def get_capabilities(self) -> ProviderCapability: ...
 
     @abstractmethod
     def get_symbols(self) -> list[str]: ...

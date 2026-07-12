@@ -27,15 +27,17 @@ class TelegramNotifier:
             return {"delivered": False, "fallback": "console"}
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(
-                url, json={"chat_id": self.chat_id, "text": message}
-            )
+            response = await client.post(url, json={"chat_id": self.chat_id, "text": message})
             response.raise_for_status()
         return {"delivered": True, "fallback": None}
 
 
-def validate_chat(expected_chat_id: str | None, actual_chat_id: str) -> bool:
-    return bool(expected_chat_id) and expected_chat_id == actual_chat_id
+def validate_chat(expected_chat_ids: str | set[str] | None, actual_chat_id: str) -> bool:
+    if isinstance(expected_chat_ids, str):
+        expected_chat_ids = {expected_chat_ids}
+    if not expected_chat_ids:
+        return False
+    return actual_chat_id in expected_chat_ids
 
 
 def send_telegram_alert(message: str) -> None:
@@ -47,9 +49,7 @@ def send_telegram_alert(message: str) -> None:
 
     try:
         loop = asyncio.get_running_loop()
-        notifier = TelegramNotifier(
-            settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID
-        )
+        notifier = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
         loop.create_task(notifier.send(message))
     except RuntimeError:
         # Fallback to sync HTTP POST if no event loop is running
@@ -96,9 +96,7 @@ async def run_bot_polling() -> None:
     while True:
         try:
             async with httpx.AsyncClient(timeout=15) as client:
-                response = await client.get(
-                    url, params={"offset": offset, "timeout": 10}
-                )
+                response = await client.get(url, params={"offset": offset, "timeout": 10})
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("ok"):
@@ -128,7 +126,7 @@ async def handle_update(update: dict[str, Any]) -> None:
 
     settings = get_settings()
     # 1. Verification & Access Control
-    if not validate_chat(settings.TELEGRAM_CHAT_ID, str(chat_id_val)):
+    if not validate_chat(settings.telegram_allowed_chat_ids, str(chat_id_val)):
         logger.warning("Access violation attempt from Chat ID: %s", chat_id_val)
         with SessionLocal() as db:
             from app.services.audit import append_audit
@@ -138,7 +136,7 @@ async def handle_update(update: dict[str, Any]) -> None:
                 actor=f"unauthorized_chat_{chat_id_val}",
                 event_type="security.unauthorized_telegram_access",
                 entity_type="telegram",
-                new_state={"text": text},
+                new_state={"command": text.split()[0].lower()},
             )
             db.commit()
         return
@@ -182,9 +180,7 @@ async def handle_update(update: dict[str, Any]) -> None:
     elif cmd == "/resume":
         reply = await resume_cmd()
     elif cmd == "/emergency_stop":
-        reply = await set_risk_state_cmd(
-            "emergency_stop", "Emergency stopped via Telegram Bot"
-        )
+        reply = await set_risk_state_cmd("emergency_stop", "Emergency stopped via Telegram Bot")
     elif cmd in ("/approve", "/reject"):
         if not args:
             reply = f"Error: Token parameter required. Usage: {cmd} <token>"
@@ -196,7 +192,20 @@ async def handle_update(update: dict[str, Any]) -> None:
                 reply = await reject_token_cmd(token)
 
     # 3. Send response
-    notifier = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, settings.TELEGRAM_CHAT_ID)
+    with SessionLocal() as db:
+        from app.services.audit import append_audit
+
+        append_audit(
+            db,
+            actor=f"telegram_chat_{chat_id_val}",
+            event_type="telegram.command",
+            entity_type="telegram",
+            entity_id=cmd,
+            metadata={"command": cmd, "result": "handled"},
+        )
+        db.commit()
+
+    notifier = TelegramNotifier(settings.TELEGRAM_BOT_TOKEN, str(chat_id_val))
     await notifier.send(reply)
 
 
@@ -263,9 +272,7 @@ async def get_portfolio_cmd() -> str:
 
 async def get_signals_cmd() -> str:
     with SessionLocal() as db:
-        signals = db.scalars(
-            select(Signal).order_by(Signal.timestamp.desc()).limit(5)
-        ).all()
+        signals = db.scalars(select(Signal).order_by(Signal.timestamp.desc()).limit(5)).all()
         signals_str = ""
         for s in signals:
             signals_str += f"\n- {s.symbol} ({s.strategy_id}): {s.signal_type.upper()} strength={s.strength_score:.1f} @ {s.entry_price or 'N/A'}"
@@ -276,14 +283,14 @@ async def get_signals_cmd() -> str:
 
 async def get_orders_cmd() -> str:
     with SessionLocal() as db:
-        orders = db.scalars(
-            select(Order).order_by(Order.created_at.desc()).limit(5)
-        ).all()
+        orders = db.scalars(select(Order).order_by(Order.created_at.desc()).limit(5)).all()
         orders_str = ""
         for o in orders:
             price = f" @ ৳{o.limit_price:.2f}" if o.limit_price else ""
             tok = f" [Token: {o.approval_token}]" if o.status == "awaiting_approval" else ""
-            orders_str += f"\n- {o.symbol} {o.side.upper()} {o.quantity}{price} -> {o.status.upper()}{tok}"
+            orders_str += (
+                f"\n- {o.symbol} {o.side.upper()} {o.quantity}{price} -> {o.status.upper()}{tok}"
+            )
         if not orders_str:
             orders_str = "\n- No orders found."
         return f"🛒 Recent Orders:{orders_str}"
@@ -301,10 +308,7 @@ async def get_risk_cmd() -> str:
 
         today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         orders_today = (
-            db.scalar(
-                select(func.count()).select_from(Order).where(Order.created_at >= today)
-            )
-            or 0
+            db.scalar(select(func.count()).select_from(Order).where(Order.created_at >= today)) or 0
         )
         return (
             f"🛡️ Pre-Trade Risk Limits:\n"
@@ -331,9 +335,7 @@ async def get_pnl_cmd() -> str:
                 prices[s] = provider.get_quote(s).last_price
         view = derive_portfolio(db, prices)
         unreal = (
-            f"৳{view.total_unrealized_pnl:,.2f}"
-            if view.total_unrealized_pnl is not None
-            else "N/A"
+            f"৳{view.total_unrealized_pnl:,.2f}" if view.total_unrealized_pnl is not None else "N/A"
         )
         return (
             f"💰 Derived Profit & Loss:\n"
@@ -427,7 +429,9 @@ async def approve_token_cmd(token: str) -> str:
             if not comp.safe_for_orders:
                 order.status = "risk_rejected"
                 db.commit()
-                return f"❌ Revalidation failed: Quote comparison returned unsafe: {comp.reason_codes}"
+                return (
+                    f"❌ Revalidation failed: Quote comparison returned unsafe: {comp.reason_codes}"
+                )
 
             payload = OrderProposalCreate(
                 idempotency_key=order.idempotency_key,
@@ -457,6 +461,7 @@ async def approve_token_cmd(token: str) -> str:
                 payload,
                 RiskEngine(),
                 max_data_age_seconds=settings.DATA_MAX_STALENESS_SECONDS,
+                provider=primary,
             )
             if order.status != "approved":
                 return f"❌ Pre-trade risk validation failed: {', '.join(decision.reasons)}"
