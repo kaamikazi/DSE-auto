@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import random
+import string
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -8,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Order, PaperAccount
+from app.notifications.telegram import send_telegram_alert
 from app.risk.engine import RiskEngine
 from app.risk.kill_switch import get_state
 from app.schemas.trading import OrderProposalCreate, RiskDecision
@@ -54,6 +57,11 @@ def propose_order(
         expires_at=payload.expires_at,
         status="awaiting_approval" if decision.approved else "risk_rejected",
     )
+    if decision.approved:
+        token = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        order.approval_token = token
+        order.approval_token_expires_at = datetime.now(UTC) + timedelta(minutes=15)
+
     db.add(order)
     try:
         db.flush()
@@ -77,6 +85,25 @@ def propose_order(
         new_state={"status": order.status, "symbol": order.symbol, "quantity": order.quantity},
     )
     db.commit()
+
+    if order.status == "awaiting_approval" and order.approval_token:
+        price_desc = f"@ ৳{order.limit_price:.2f}" if order.limit_price else "at market"
+        message = (
+            f"⚠️ Pending Proposal: {order.side.upper()} {order.quantity} {order.symbol} {price_desc}\n"
+            f"● Strategy: {order.strategy_id or 'manual'}\n"
+            f"● Token: {order.approval_token} (expires in 15m)\n"
+            f"To approve, send: /approve {order.approval_token}\n"
+            f"To reject, send: /reject {order.approval_token}"
+        )
+        send_telegram_alert(message)
+    elif order.status == "risk_rejected":
+        reasons_desc = ", ".join(decision.reasons)
+        message = (
+            f"❌ Proposal Rejected by Risk: {order.side.upper()} {order.quantity} {order.symbol}\n"
+            f"● Reasons: {reasons_desc}"
+        )
+        send_telegram_alert(message)
+
     return order, decision
 
 

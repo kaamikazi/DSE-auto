@@ -1,10 +1,7 @@
 # Known Limitations
 
-- No real-money broker execution; the official adapter is disabled.
-- Public provider APIs are version-sensitive and require environment-specific contract verification.
-- The scheduler/Redis queue, provider cache, Excel-native import and full Telegram command dispatcher are not included in this milestone slice.
-- Corporate-action adjustment depends on supplied transaction/data records.
-- Dashboard secondary pages are operational shells; full editing workflows use the API.
-- Backtest win/profit-factor/holding-period analytics and full HTML chart packs remain follow-up work.
-- API-key authentication is local-deployment grade, not multi-user internet-facing authentication.
-
+- **No Real-Money Broker Execution**: The system is restricted to simulated paper trading. The `OfficialBrokerAdapter` is inactive and throws a runtime exception upon invocation.
+- **Provider API Layout Sensitivity**: Scrapers like `bdshare` are sensitive to DSE HTML layout alterations. The dual-source `ReliableDataProvider` and fallback CSV provider are configured to mitigate this risk.
+- **Corporate-Action Adjustments**: Dividend and bonus share adjustments depend on inputs supplied in transaction logs or history files.
+- **Operator-Grade Security**: The API key mechanism (`X-API-Key`) is designed for local operators and single-process development, not multi-user internet-facing environments.
+- **No Leverage or Short Selling**: Transactions and backtests simulate cash-only (long-only) operations without leverage.

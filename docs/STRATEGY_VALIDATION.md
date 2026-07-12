@@ -2,7 +2,21 @@
 
 Initial research instruments are GP, SQURPHARMA, BRACBANK, BATBC, ACI, RENATA, CITYBANK and BEXIMCO. They are test instruments, not recommendations.
 
-Validate buy-and-hold, 20/50 MA, momentum with DSEX filter and volume breakout across multiple windows. Include fees/slippage, inspect parameter sensitivity, and maintain ordered train/validation/untouched-test partitions. Signals execute on the next bar to prevent same-bar look-ahead. A test result may not tune the same strategy version.
+## Extended Performance Metrics
+Every backtest computes the following metrics to assess viability:
+- **Profit Factor**: Ratio of gross profits to gross losses (gross profits / gross losses).
+- **Expectancy**: Expected P&L per trade (win rate * average win - loss rate * average loss).
+- **Turnover Rate**: Traded volume divided by starting capital.
+- **Benchmark Alpha**: Excess annualized return of the strategy compared to DSEX index returns.
+- **Drawdown Duration**: Longest consecutive number of bars the portfolio equity stays below its historical peak.
 
-Record missing corporate actions, liquidity assumptions, constituent history, failed fills and provider warnings with every report.
+## Walk-Forward & Parameter Sensitivity
+- **Walk-Forward Validation**: Partitions historical data into sequential splits (train, validation, test) to simulate walk-forward performance.
+- **Parameter Sensitivity Matrix**: Evaluates strategy performance (MA Crossover fast/slow parameters: 10/30, 20/50, 30/100) and outputs returns, Sharpe ratios, and max drawdowns for comparison.
 
+## Report Generation
+Backtests generate structured outputs:
+- **JSON**: Detailed metrics, transaction histories, and equity curves.
+- **HTML**: Self-contained, styled operator reports featuring metric tables.
+- All backtests enforce next-bar execution rules to prevent same-bar look-ahead bias.
+- Results are fixture-based research instruments; do not claim profitability.

@@ -86,10 +86,23 @@ class Order(Base):
     average_fill_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     strategy_id: Mapped[str | None] = mapped_column(String(100))
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    approval_token: Mapped[str | None] = mapped_column(String(32), index=True)
+    approval_token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class JobExecution(Base):
+    __tablename__ = "job_executions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_name: Mapped[str] = mapped_column(String(100), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32), default="running")
+    error_message: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
 
 
 class Signal(Base):

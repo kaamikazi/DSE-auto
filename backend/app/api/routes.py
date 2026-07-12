@@ -18,7 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import get_db
 from app.core.security import require_api_key
 from app.data.providers import DataProviderError, create_provider
-from app.models import AuditEvent, Order, Signal, Transaction
+from app.models import AuditEvent, JobExecution, Order, Signal, Transaction
 from app.risk import RiskEngine
 from app.risk.kill_switch import get_state, set_state
 from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
@@ -294,6 +294,12 @@ def emergency_stop(db: Db) -> dict[str, object]:
     return {"state": state.state, "reason": state.reason}
 
 
+@router.post("/risk/pause", dependencies=[Depends(require_api_key)])
+def pause(db: Db) -> dict[str, object]:
+    state = set_state(db, "trading_paused", "Manual pause", "user")
+    return {"state": state.state, "reason": state.reason}
+
+
 @router.post("/risk/resume", dependencies=[Depends(require_api_key)])
 def resume(db: Db) -> dict[str, object]:
     broker_status = PaperBroker(db).reconcile()
@@ -325,4 +331,56 @@ def audit_events(db: Db) -> dict[str, object]:
             }
             for event in events
         ],
+    }
+
+
+@router.get("/scheduler/runs")
+def scheduler_runs(db: Db) -> list[dict[str, object]]:
+    runs = db.scalars(
+        select(JobExecution).order_by(JobExecution.started_at.desc()).limit(50)
+    ).all()
+    return [
+        {
+            "id": r.id,
+            "job_name": r.job_name,
+            "started_at": r.started_at.isoformat(),
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "status": r.status,
+            "error_message": r.error_message,
+            "attempts": r.attempts,
+        }
+        for r in runs
+    ]
+
+
+@router.get("/scheduler/health")
+def scheduler_health(db: Db) -> dict[str, object]:
+    from sqlalchemy import func
+
+    subq = (
+        select(
+            JobExecution.job_name,
+            func.max(JobExecution.started_at).label("max_started"),
+        )
+        .group_by(JobExecution.job_name)
+        .subquery()
+    )
+    last_runs = db.scalars(
+        select(JobExecution).join(
+            subq,
+            (JobExecution.job_name == subq.c.job_name)
+            & (JobExecution.started_at == subq.c.max_started),
+        )
+    ).all()
+    return {
+        "healthy": not any(r.status == "failed" for r in last_runs),
+        "jobs": {
+            r.job_name: {
+                "status": r.status,
+                "started_at": r.started_at.isoformat(),
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                "error_message": r.error_message,
+            }
+            for r in last_runs
+        },
     }

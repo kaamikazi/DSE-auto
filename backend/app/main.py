@@ -14,7 +14,10 @@ from app.core.config import get_settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.logging import configure_logging
 from app.models import PaperAccount, RiskState
+from app.notifications.telegram import start_bot_polling, stop_bot_polling
 from app.services.audit import append_audit
+from app.services.recovery import run_startup_recovery
+from app.services.scheduler import start_scheduler, stop_scheduler
 
 settings = get_settings()
 configure_logging(settings.LOG_LEVEL)
@@ -31,6 +34,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         if db.get(RiskState, 1) is None:
             db.add(RiskState(id=1, state="healthy", reason="Paper mode startup diagnostics passed"))
         db.flush()
+        run_startup_recovery(db)
         append_audit(
             db,
             actor="system",
@@ -40,7 +44,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         )
         db.commit()
     logger.info("DSE AutoTrader started in PAPER mode; live execution is unavailable")
+    start_scheduler()
+    start_bot_polling()
     yield
+    stop_bot_polling()
+    stop_scheduler()
 
 
 app = FastAPI(title="DSE AutoTrader", version="0.1.0", lifespan=lifespan, docs_url="/api/docs")
