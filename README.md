@@ -57,3 +57,7 @@ See [ARCHITECTURE.md](docs/ARCHITECTURE.md), [WINDOWS_SETUP.md](docs/WINDOWS_SET
 ## Milestone 2 operations
 
 Persistent job records, overlap prevention, bounded retry/backoff, stale-worker recovery, provider failover, restart reconciliation and Telegram controls support reliable paper operations. Run APScheduler in exactly one process; set `SCHEDULER_ENABLED=false` on additional API workers. Telegram access is fail-closed through `TELEGRAM_ALLOWED_CHAT_IDS`; every one-time approval is revalidated immediately before paper execution.
+
+## Milestone 3 paper validation
+
+Named persistent paper sessions, an auditable Bangladesh calendar, conservative DSE execution rules, reversible imports, opt-in real-provider diagnostics and evidence packs support continuous paper validation. Start with `scripts\paper-operator.ps1`. Real broker execution remains unavailable.

@@ -65,3 +65,13 @@ Detailed reports are generated and can be reviewed here:
 ## Milestone 2 release gate
 
 Run pytest, Ruff, strict mypy, Alembic upgrade/downgrade/re-upgrade, frontend TypeScript, ESLint, production build and `npm audit`. Failure tests cover scheduler overlap and stale recovery, restart reconciliation, expired approvals, unauthorized chats, provider failover, stale timestamps, database/Telegram outage and duplicate paper orders.
+
+## Milestone 3 verification — 2026-07-13
+
+- Backend: 65 tests passed, including duplicate-session, stale restart recovery, calendar, conservative execution and accelerated 60-day invariants.
+- Ruff and strict mypy: passed (51 source files).
+- Alembic: `0003` upgrade, downgrade to `0002`, re-upgrade and current-head passed.
+- Frontend: TypeScript, ESLint and production build passed; npm audit reported zero vulnerabilities.
+- Backup/restore: source and restored SQLite SHA-256 matched (`9714DD9F...3EC6DE`).
+- Real providers: command completed and reports were generated, but external availability failed as documented in `REAL_DSE_DATA_VERIFICATION.md`.
+- `git diff --check` passed. Audit-chain verification correctly failed on one historical concurrent branch; the database remains fail-closed and the unresolved invariant is documented in `SOAK_TEST_REPORT.md`.

@@ -1,5 +1,7 @@
 # Live Trading Checklist
 
+Milestone 3 remains paper-only. Real money stays blocked until provider timestamp reliability, long-run evidence, reconciliation, fill assumptions, calendar governance, restore drills and soak failures receive independent review. Passing this checklist does not enable a broker adapter.
+
 All items require written sign-off:
 
 - At least 60 DSE trading days of representative paper results
@@ -14,4 +16,3 @@ All items require written sign-off:
 - Written acceptance of financial and operational risk
 
 Milestone 1 cannot be enabled for live trading even if these boxes are checked; code and configuration changes plus a formal release are required.
-
