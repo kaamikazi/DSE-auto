@@ -14,4 +14,7 @@
 - **Real-provider Blocker**: The latest bdshare smoke test encountered TLS/DNS failures; bdfinance was not installed in the active environment. Real DSE validation is not yet continuous or trustworthy.
 - **Calendar Governance**: Configured hours and bands are explicit simulation assumptions that require independent confirmation against current DSE publications.
 - **Evidence Charts**: The evidence service emits HTML/JSON/CSV; richer chart exports and a full shadow-portfolio UI remain follow-up validation work.
-- **Audit Remediation Required**: The current restored database has a historical two-writer audit branch. Do not run a continuous paper session until an operator-approved archive/new-chain procedure and serialized audit writer are implemented.
+- **Historical Audit Branch**: The legacy two-writer branch remains preserved in its hash-addressed archive; it is not part of the valid canonical generation.
+- **Legacy Audit Evidence**: The historical branch is archived and preserved; only the new canonical generation is operationally valid.
+- **Public DSE Providers**: bdshare remains blocked by TLS/DNS failures, and no bdfinance distribution was available from the configured package index.
+- **Attestation Scope**: Operator-attested CSV validates workflow reliability, not live-market latency or provider accuracy.

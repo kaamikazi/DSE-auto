@@ -75,3 +75,16 @@ Run pytest, Ruff, strict mypy, Alembic upgrade/downgrade/re-upgrade, frontend Ty
 - Backup/restore: source and restored SQLite SHA-256 matched (`9714DD9F...3EC6DE`).
 - Real providers: command completed and reports were generated, but external availability failed as documented in `REAL_DSE_DATA_VERIFICATION.md`.
 - `git diff --check` passed. Audit-chain verification correctly failed on one historical concurrent branch; the database remains fail-closed and the unresolved invariant is documented in `SOAK_TEST_REPORT.md`.
+
+## Milestone 5 verification — 2026-07-13
+
+- Legacy audit archive: 398 events preserved; SHA-256 `8925b8d4...40f1000`.
+- Canonical audit: initialized with operator acknowledgement; 40-writer concurrency and crash-durability tests pass.
+- Imported session: readiness passed, operator-attested GP quote recorded, signal generated, proposal approved, order filled, EOD reconciliation healthy, evidence generated, session completed.
+- Post-session backup: `dse_autotrader_backup_20260713_045759.db`; restore hash matched; audit and reconciliation remained valid.
+- Provider recovery: bdshare still failed verified TLS/DNS; bdfinance had no installable distribution. No TLS bypass used.
+- Shadow comparison: all required metric fields generated; short deterministic inputs are pipeline-only evidence.
+- Backend: 69 tests passed; Ruff format/lint and strict mypy passed across 55 source files.
+- Frontend: TypeScript, ESLint, production build, and npm audit passed with zero vulnerabilities.
+- Alembic: `0004` downgrade/re-upgrade passed on an isolated clone, preserving the operational canonical chain.
+- Final canonical state: 12 valid canonical events plus 398 immutable archived legacy events; paper-account reconciliation remained healthy.

@@ -2,6 +2,8 @@
 
 Milestone 3 remains paper-only. Real money stays blocked until provider timestamp reliability, long-run evidence, reconciliation, fill assumptions, calendar governance, restore drills and soak failures receive independent review. Passing this checklist does not enable a broker adapter.
 
+Milestone 5 recovered canonical audit integrity and completed one imported-data paper session. Live trading is still blocked because public DSE acquisition lacks trustworthy exchange timestamps, bdfinance is unavailable, and sustained multi-week operational evidence has not been produced.
+
 All items require written sign-off:
 
 - At least 60 DSE trading days of representative paper results
