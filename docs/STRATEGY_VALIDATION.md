@@ -1,5 +1,7 @@
 # Strategy Validation
 
+Milestone 2 reports Sharpe, Sortino, Calmar, maximum drawdown, drawdown duration, expectancy, profit factor, turnover and benchmark alpha. Walk-forward splits and parameter sensitivity generate per-symbol HTML/JSON evidence for GP, SQURPHARMA, BRACBANK, BATBC, ACI, RENATA, CITYBANK and BEXIMCO when usable data exists; missing data is reported rather than inferred. These reports are not profitability claims.
+
 Initial research instruments are GP, SQURPHARMA, BRACBANK, BATBC, ACI, RENATA, CITYBANK and BEXIMCO. They are test instruments, not recommendations.
 
 ## Extended Performance Metrics

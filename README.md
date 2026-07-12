@@ -54,3 +54,6 @@ npm.cmd run build
 
 See [ARCHITECTURE.md](docs/ARCHITECTURE.md), [WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md), [PAPER_TRADING_GUIDE.md](docs/PAPER_TRADING_GUIDE.md), and [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
+## Milestone 2 operations
+
+Persistent job records, overlap prevention, bounded retry/backoff, stale-worker recovery, provider failover, restart reconciliation and Telegram controls support reliable paper operations. Run APScheduler in exactly one process; set `SCHEDULER_ENABLED=false` on additional API workers. Telegram access is fail-closed through `TELEGRAM_ALLOWED_CHAT_IDS`; every one-time approval is revalidated immediately before paper execution.

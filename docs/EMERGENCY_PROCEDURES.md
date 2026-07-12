@@ -1,5 +1,7 @@
 # Emergency Procedures
 
+For scheduler or provider incidents, stop paper execution, preserve a database backup, resolve stale/failed jobs and disagreement, then restart exactly one scheduler-enabled process. Startup recovery must reconcile cash, holdings, open orders and pending proposals before a human resumes operations.
+
 1. **Trigger Emergency Stop**:
    - Operator Dashboard: Click the **EMERGENCY STOP** button.
    - Telegram Bot: Send the `/emergency_stop` command.
