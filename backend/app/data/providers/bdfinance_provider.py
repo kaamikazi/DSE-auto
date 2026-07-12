@@ -27,7 +27,7 @@ class BDFinanceProvider(MarketDataProvider):
     @staticmethod
     def _client_type() -> Any:
         try:
-            from bdfinance import BDStockClient  # type: ignore[import-untyped]
+            from bdfinance import BDStockClient
         except ImportError as exc:
             raise DataProviderError(
                 "bdfinance is not installed; install the providers extra"

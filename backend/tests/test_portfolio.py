@@ -14,7 +14,7 @@ def tx(kind: str, quantity: str, price: str, fees: str = "0") -> TransactionCrea
         quantity=Decimal(quantity),
         price=Decimal(price),
         fees=Decimal(fees),
-    )  # type: ignore[arg-type]
+    )
 
 
 def test_buy_partial_sell_and_dividend_accounting(db) -> None:  # type: ignore[no-untyped-def]
@@ -33,6 +33,6 @@ def test_buy_partial_sell_and_dividend_accounting(db) -> None:  # type: ignore[n
 
 def test_original_source_record_preserved(db) -> None:  # type: ignore[no-untyped-def]
     payload = tx("buy", "5", "100")
-    record = {"raw": "original"}
+    record: dict[str, object] = {"raw": "original"}
     created = add_transaction(db, payload, record)
     assert created.source_record == record
