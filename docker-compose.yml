@@ -4,26 +4,106 @@ services:
     environment:
       POSTGRES_DB: dse_autotrader
       POSTGRES_USER: dse
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
-    volumes: [postgres_data:/var/lib/postgresql/data]
-    healthcheck: { test: ["CMD-SHELL", "pg_isready -U dse"], interval: 5s, timeout: 3s, retries: 10 }
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dse -d dse_autotrader"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  db_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: dse_autotrader_test
+      POSTGRES_USER: dse_test
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:?set POSTGRES_TEST_PASSWORD in .env}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dse_test -d dse_autotrader_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
   redis:
     image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes: [redis_data:/data]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   backend:
     build: ./backend
     env_file: .env
-    environment:
-      DATABASE_URL: postgresql+psycopg://dse:${POSTGRES_PASSWORD:-local-development-only}@db:5432/dse_autotrader
+    environment: &backend_environment
+      APP_ENV: production
+      DATABASE_URL: postgresql+psycopg://dse:${POSTGRES_PASSWORD}@db:5432/dse_autotrader
       REDIS_URL: redis://redis:6379/0
-    ports: ["8000:8000"]
+      SCHEDULER_ENABLED: "false"
+      SCHEDULER_MODE: external
+      TRADING_MODE: paper
+      LIVE_TRADING_ENABLED: "false"
+      BROKER_ADAPTER: disabled
+    command:
+      - sh
+      - -c
+      - alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "127.0.0.1:8000:8000"
     depends_on:
-      db: { condition: service_healthy }
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    env_file: .env
+    environment: *backend_environment
+    command: ["python", "-m", "app.worker_process"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scheduler:
+    build: ./backend
+    env_file: .env
+    environment: *backend_environment
+    command: ["python", "-m", "app.scheduler_process"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     build: ./frontend
-    environment: { NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1 }
-    ports: ["3000:3000"]
-    depends_on: [backend]
-volumes: { postgres_data: {}, redis_data: {} }
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:8000/api/v1
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
 
+volumes:
+  postgres_data: {}
+  redis_data: {}
