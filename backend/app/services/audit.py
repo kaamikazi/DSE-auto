@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditChain, AuditEvent
+from app.models import AuditChain, AuditEvent, OperationalMetric
 
 _AUDIT_LOCK = threading.RLock()
 ZERO_HASH = "0" * 64
@@ -44,6 +45,7 @@ def append_audit(
     metadata: dict[str, Any] | None = None,
 ) -> AuditEvent:
     """Append under a process-wide lock and a database unique sequence constraint."""
+    started = time.perf_counter()
     with _AUDIT_LOCK:
         chain = db.scalar(select(AuditChain).where(AuditChain.status == "active"))
         if chain:
@@ -83,6 +85,14 @@ def append_audit(
         ).hexdigest()
         db.add(event)
         db.flush()
+        db.add(
+            OperationalMetric(
+                metric_name="audit_write_latency",
+                value=(time.perf_counter() - started) * 1000,
+                unit="milliseconds",
+                labels={"event_type": event_type},
+            )
+        )
         if chain_id is not None:
             # Canonical audit records are independently durable. The lock remains
             # held through commit, preventing another writer from selecting the

@@ -6,7 +6,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
+from app.schemas.market import (
+    HistoricalBar,
+    MarketSummary,
+    ProviderCapability,
+    Quote,
+    TimestampProvenance,
+)
 
 
 class CSVProvider(MarketDataProvider):
@@ -70,19 +76,27 @@ class CSVProvider(MarketDataProvider):
                 raise DataProviderError(f"Duplicate timestamp: {timestamp.isoformat()}")
             seen.add(timestamp)
             if start <= timestamp.date() <= end:
+                open_price = self._decimal(row, "open")
+                high = self._decimal(row, "high")
+                low = self._decimal(row, "low")
+                close = self._decimal(row, "close")
+                if open_price is None or high is None or low is None or close is None:
+                    raise DataProviderError("OHLC columns are required")
                 result.append(
                     HistoricalBar(
                         timestamp=timestamp,
                         symbol=symbol,
-                        open=self._decimal(row, "open"),
-                        high=self._decimal(row, "high"),
-                        low=self._decimal(row, "low"),
-                        close=self._decimal(row, "close"),
+                        open=open_price,
+                        high=high,
+                        low=low,
+                        close=close,
                         volume=int(row["volume"].replace(",", "")) if row.get("volume") else None,
                         trade_count=int(row["trade_count"]) if row.get("trade_count") else None,
                         turnover=self._decimal(row, "turnover", required=False),
                         source=self.name,
-                        timestamp_provenance=row.get("timestamp_provenance", "unknown"),
+                        timestamp_provenance=TimestampProvenance(
+                            row.get("timestamp_provenance", "unknown")
+                        ),
                     )
                 )
         return sorted(result, key=lambda item: item.timestamp)

@@ -433,23 +433,25 @@ async def approve_token_cmd(token: str) -> str:
                     f"❌ Revalidation failed: Quote comparison returned unsafe: {comp.reason_codes}"
                 )
 
-            payload = OrderProposalCreate(
-                idempotency_key=order.idempotency_key,
-                symbol=order.symbol,
-                side=order.side,
-                order_type=order.order_type,
-                quantity=order.quantity,
-                limit_price=order.limit_price,
-                stop_price=order.stop_price,
-                current_price=quote.last_price,
-                strategy_id=order.strategy_id,
-                expires_at=order.expires_at,
-                data_timestamp=quote.market_timestamp,
-                data_quality_status="valid",
-                provider_disagreement_percent=comp.disagreement_percent,
-                bid=quote.bid,
-                ask=quote.ask,
-                average_daily_volume=quote.volume,
+            payload = OrderProposalCreate.model_validate(
+                {
+                    "idempotency_key": order.idempotency_key,
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "order_type": order.order_type,
+                    "quantity": order.quantity,
+                    "limit_price": order.limit_price,
+                    "stop_price": order.stop_price,
+                    "current_price": quote.last_price,
+                    "strategy_id": order.strategy_id,
+                    "expires_at": order.expires_at,
+                    "data_timestamp": quote.market_timestamp,
+                    "data_quality_status": "valid",
+                    "provider_disagreement_percent": comp.disagreement_percent,
+                    "bid": quote.bid,
+                    "ask": quote.ask,
+                    "average_daily_volume": quote.volume,
+                }
             )
 
             from app.risk.engine import RiskEngine

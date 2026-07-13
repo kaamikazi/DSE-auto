@@ -11,7 +11,11 @@ from app.services.audit import append_audit
 
 
 def moving_average_signal(
-    db: Session, symbol: str, bars: list[HistoricalBar], quote: Quote
+    db: Session,
+    symbol: str,
+    bars: list[HistoricalBar],
+    quote: Quote,
+    campaign_id: str | None = None,
 ) -> Signal:
     if len(bars) < 50:
         raise ValueError("50 bars are required for the moving-average signal")
@@ -40,6 +44,7 @@ def moving_average_signal(
         data_quality_status=quote.quality_status.value,
         risk_preview={"requires_pretrade_check": True},
         expires_at=datetime.now(UTC) + timedelta(hours=24),
+        campaign_id=campaign_id,
     )
     db.add(signal)
     db.flush()
@@ -49,7 +54,7 @@ def moving_average_signal(
         event_type="signal.generated",
         entity_type="signal",
         entity_id=signal.id,
-        new_state={"type": signal_type, "symbol": symbol},
+        new_state={"type": signal_type, "symbol": symbol, "campaign_id": campaign_id},
     )
     db.commit()
     return signal

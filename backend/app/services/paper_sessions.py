@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import PaperAccount, PaperSession, PaperSessionRun
+from app.models import FeeProfile, MarketRuleSet, PaperAccount, PaperSession, PaperSessionRun
 from app.services.audit import append_audit
 
 ACTIVE_STATES = {"warming_up", "running", "paused", "degraded", "reconciliation_required"}
@@ -36,6 +36,13 @@ def create_session(
     account = db.get(PaperAccount, 1)
     if account is None:
         raise ValueError("Paper account is not initialized")
+    rule_set = db.scalar(
+        select(MarketRuleSet)
+        .where(MarketRuleSet.verification_status != "deprecated")
+        .order_by(MarketRuleSet.effective_date.desc())
+        .limit(1)
+    )
+    fee_profile = db.scalar(select(FeeProfile).order_by(FeeProfile.effective_date.desc()).limit(1))
     session = PaperSession(
         name=name,
         starting_cash=account.cash,
@@ -43,6 +50,8 @@ def create_session(
         strategies=sorted(set(strategies)),
         risk_profile=risk_profile,
         fill_model=fill_model,
+        market_rule_set_id=rule_set.id if rule_set else None,
+        fee_profile_id=fee_profile.id if fee_profile else None,
     )
     db.add(session)
     append_audit(
@@ -51,7 +60,12 @@ def create_session(
         event_type="paper_session.configured",
         entity_type="paper_session",
         entity_id=session.id,
-        new_state={"name": name, "fill_model": fill_model},
+        new_state={
+            "name": name,
+            "fill_model": fill_model,
+            "market_rule_set_id": session.market_rule_set_id,
+            "fee_profile_id": session.fee_profile_id,
+        },
     )
     db.commit()
     db.refresh(session)
@@ -141,5 +155,7 @@ def summary(session: PaperSession) -> dict[str, Any]:
         "strategies": session.strategies,
         "risk_profile": session.risk_profile,
         "fill_model": session.fill_model,
+        "market_rule_set_id": session.market_rule_set_id,
+        "fee_profile_id": session.fee_profile_id,
         "heartbeat_at": session.heartbeat_at.isoformat() if session.heartbeat_at else None,
     }

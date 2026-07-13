@@ -19,6 +19,9 @@ def run_startup_recovery(db) -> None:  # type: ignore[no-untyped-def]
     from app.services.paper_sessions import recover_stale_sessions
 
     recover_stale_sessions(db, get_settings().PAPER_SESSION_STALE_AFTER_SECONDS)
+    from app.services.campaigns import recover_campaigns_after_restart
+
+    recover_campaigns_after_restart(db, datetime.now(UTC).date())
     logger.info("Executing startup diagnostics and state reconciliation...")
 
     # 1. Clean up stale/expired proposals

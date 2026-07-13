@@ -6,7 +6,14 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
+from app.schemas.market import (
+    HistoricalBar,
+    MarketSummary,
+    ProviderCapability,
+    QualityStatus,
+    Quote,
+    TimestampProvenance,
+)
 
 SYMBOLS = ["GP", "SQURPHARMA", "BRACBANK", "BATBC", "ACI", "RENATA", "CITYBANK", "BEXIMCO", "DSEX"]
 
@@ -72,9 +79,9 @@ class MockProvider(MarketDataProvider):
             received_at=self.now,
             source=self.name,
             stale=self.stale,
-            quality_status="unsafe" if self.stale else "valid",
+            quality_status=QualityStatus.UNSAFE if self.stale else QualityStatus.VALID,
             quality_flags=["stale"] if self.stale else [],
-            timestamp_provenance="exchange_verified",
+            timestamp_provenance=TimestampProvenance.EXCHANGE_VERIFIED,
         )
 
     def get_history(self, symbol: str, start: date, end: date) -> list[HistoricalBar]:
@@ -103,7 +110,7 @@ class MockProvider(MarketDataProvider):
                         trade_count=300 + index % 100,
                         turnover=close * (80_000 + (index % 20) * 8_000),
                         source=self.name,
-                        timestamp_provenance="exchange_verified",
+                        timestamp_provenance=TimestampProvenance.EXCHANGE_VERIFIED,
                     )
                 )
                 index += 1

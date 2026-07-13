@@ -13,7 +13,9 @@ from app.schemas.market import (
     MarketSummary,
     NewsItem,
     ProviderCapability,
+    QualityStatus,
     Quote,
+    TimestampProvenance,
 )
 
 
@@ -98,9 +100,9 @@ class BDFinanceProvider(MarketDataProvider):
             market_timestamp=now,
             received_at=now,
             source=self.name,
-            quality_status="unsafe",
+            quality_status=QualityStatus.UNSAFE,
             quality_flags=["market_timestamp_unavailable_received_time_used"],
-            timestamp_provenance="receipt_only",
+            timestamp_provenance=TimestampProvenance.RECEIPT_ONLY,
         )
 
     async def _history(self, symbol: str, start: date, end: date) -> Any:
@@ -128,7 +130,7 @@ class BDFinanceProvider(MarketDataProvider):
                     trade_count=int(row["trade"]) if row.get("trade") is not None else None,
                     turnover=Decimal(str(row["value"])) if row.get("value") is not None else None,
                     source=self.name,
-                    timestamp_provenance="provider_asserted",
+                    timestamp_provenance=TimestampProvenance.PROVIDER_ASSERTED,
                 )
             )
         return sorted(result, key=lambda item: item.timestamp)

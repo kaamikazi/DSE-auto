@@ -47,9 +47,7 @@ class Ticker:
         import pandas as pd  # type: ignore[import-untyped]
 
         # Return a DataFrame with open, high, low, close, volume, trade, value
-        return pd.DataFrame(
-            columns=["open", "high", "low", "close", "volume", "trade", "value"]
-        )
+        return pd.DataFrame(columns=["open", "high", "low", "close", "volume", "trade", "value"])
 
     async def info(self, summary: bool = True) -> Any:
         class MockInfo:

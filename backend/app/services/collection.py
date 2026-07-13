@@ -12,21 +12,27 @@ from app.services.audit import append_audit
 class CollectionService:
     """Idempotent job targets for an external scheduler, Windows Task Scheduler, or queue worker."""
 
-    def __init__(self, db: Session, provider: MarketDataProvider) -> None:
-        self.db, self.provider = db, provider
+    def __init__(
+        self, db: Session, provider: MarketDataProvider, campaign_id: str | None = None
+    ) -> None:
+        self.db, self.provider, self.campaign_id = db, provider, campaign_id
 
     def historical_backfill(self, symbol: str, start: date, end: date) -> int:
         count = 0
         for bar in self.provider.get_history(symbol, start, end):
+            source = f"{bar.source}:campaign:{self.campaign_id}" if self.campaign_id else bar.source
             exists = (
                 self.db.query(MarketBar)
-                .filter_by(symbol=bar.symbol, timestamp=bar.timestamp, source=bar.source)
+                .filter_by(symbol=bar.symbol, timestamp=bar.timestamp, source=source)
                 .first()
             )
             if exists:
                 continue
             values = bar.model_dump(exclude={"quality_flags"})
             values["quality_status"] = bar.quality_status.value
+            values["timestamp_provenance"] = bar.timestamp_provenance.value
+            values["source"] = source
+            values["campaign_id"] = self.campaign_id
             self.db.add(MarketBar(**values))
             count += 1
         append_audit(
@@ -35,7 +41,12 @@ class CollectionService:
             event_type="data.historical_backfill",
             entity_type="symbol",
             entity_id=symbol.upper(),
-            metadata={"inserted": count, "start": start.isoformat(), "end": end.isoformat()},
+            metadata={
+                "inserted": count,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "campaign_id": self.campaign_id,
+            },
         )
         self.db.commit()
         return count
@@ -47,7 +58,15 @@ class CollectionService:
             actor="collector",
             event_type="data.quotes_refreshed",
             entity_type="market_data",
-            metadata={"symbols": symbols, "count": len(quotes), "source": self.provider.name},
+            metadata={
+                "symbols": symbols,
+                "count": len(quotes),
+                "source": self.provider.name,
+                "campaign_id": self.campaign_id,
+                "timestamp_provenance": sorted(
+                    {quote.timestamp_provenance.value for quote in quotes}
+                ),
+            },
         )
         self.db.commit()
         return {quote.symbol: quote.model_dump(mode="json") for quote in quotes}

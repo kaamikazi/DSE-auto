@@ -7,7 +7,14 @@ from pathlib import Path
 from typing import Any
 
 from app.data.providers.base import DataProviderError, MarketDataProvider
-from app.schemas.market import HistoricalBar, MarketSummary, ProviderCapability, Quote
+from app.schemas.market import (
+    HistoricalBar,
+    MarketSummary,
+    ProviderCapability,
+    QualityStatus,
+    Quote,
+    TimestampProvenance,
+)
 
 
 class BDShareProvider(MarketDataProvider):
@@ -87,7 +94,7 @@ class BDShareProvider(MarketDataProvider):
                     trade_count=int(row["trade"]) if row.get("trade") is not None else None,
                     turnover=Decimal(str(row["value"])) if row.get("value") is not None else None,
                     source=self.name,
-                    timestamp_provenance="provider_asserted",
+                    timestamp_provenance=TimestampProvenance.PROVIDER_ASSERTED,
                 )
             )
         return sorted(result, key=lambda item: item.timestamp)
@@ -117,9 +124,9 @@ class BDShareProvider(MarketDataProvider):
             market_timestamp=now,
             received_at=now,
             source=self.name,
-            quality_status="unsafe",
+            quality_status=QualityStatus.UNSAFE,
             quality_flags=["market_timestamp_unavailable_received_time_used"],
-            timestamp_provenance="receipt_only",
+            timestamp_provenance=TimestampProvenance.RECEIPT_ONLY,
         )
 
     def get_market_summary(self) -> MarketSummary:

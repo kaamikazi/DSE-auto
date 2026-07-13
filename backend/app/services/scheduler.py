@@ -9,11 +9,12 @@ from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import-untyped]
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.data.providers.factory import create_provider
-from app.models import JobExecution
+from app.models import CampaignDay, JobExecution, OperationalMetric, ValidationCampaign
 from app.services.audit import append_audit
 from app.services.collection import CollectionService
 from app.services.signals import moving_average_signal
@@ -31,6 +32,12 @@ ACTIVE_SYMBOLS = [
     "CITYBANK",
     "BEXIMCO",
 ]
+
+
+def _active_campaign(db: Session) -> ValidationCampaign | None:
+    return db.scalar(
+        select(ValidationCampaign).where(ValidationCampaign.state == "active").limit(1)
+    )
 
 
 def logged_job(
@@ -92,6 +99,19 @@ def logged_job(
                             record.status = "success"
                             record.finished_at = datetime.now(UTC)
                             record.attempts = attempts
+                            started_at = (
+                                record.started_at
+                                if record.started_at.tzinfo
+                                else record.started_at.replace(tzinfo=UTC)
+                            )
+                            db.add(
+                                OperationalMetric(
+                                    metric_name="scheduler_job_runtime",
+                                    value=(record.finished_at - started_at).total_seconds(),
+                                    unit="seconds",
+                                    labels={"job_name": job_name, "status": "success"},
+                                )
+                            )
                         append_audit(
                             db,
                             actor="scheduler",
@@ -139,7 +159,11 @@ def refresh_quotes_job() -> None:
     settings = get_settings()
     with SessionLocal() as db:
         provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
-        CollectionService(db, provider).current_quote_refresh(ACTIVE_SYMBOLS)
+        campaign = _active_campaign(db)
+        symbols = campaign.approved_symbols if campaign else ACTIVE_SYMBOLS
+        CollectionService(db, provider, campaign.id if campaign else None).current_quote_refresh(
+            symbols
+        )
 
 
 @logged_job("update_dsex")
@@ -155,13 +179,15 @@ def scan_signals_job() -> None:
     settings = get_settings()
     with SessionLocal() as db:
         provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+        campaign = _active_campaign(db)
         end = date.today()
         start = date(end.year - 1, end.month, min(end.day, 28))
-        for symbol in ACTIVE_SYMBOLS:
+        symbols = campaign.approved_symbols if campaign else ACTIVE_SYMBOLS
+        for symbol in symbols:
             try:
                 bars = provider.get_history(symbol, start, end)
                 quote = provider.get_quote(symbol)
-                moving_average_signal(db, symbol, bars, quote)
+                moving_average_signal(db, symbol, bars, quote, campaign.id if campaign else None)
             except Exception as exc:
                 logger.error("Signal generation failed for %s: %s", symbol, exc)
 
@@ -190,10 +216,12 @@ def historical_backfill_job() -> None:
     settings = get_settings()
     with SessionLocal() as db:
         provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
+        campaign = _active_campaign(db)
         end = date.today()
         start = date(end.year - 1, end.month, min(end.day, 28))
-        collector = CollectionService(db, provider)
-        for symbol in ACTIVE_SYMBOLS:
+        collector = CollectionService(db, provider, campaign.id if campaign else None)
+        symbols = campaign.approved_symbols if campaign else ACTIVE_SYMBOLS
+        for symbol in symbols:
             try:
                 collector.historical_backfill(symbol, start, end)
             except Exception as exc:
@@ -236,6 +264,59 @@ def end_of_day_snapshot_job() -> None:
         db.commit()
 
 
+@logged_job("campaign_premarket")
+def campaign_premarket_job() -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        from app.services.campaigns import start_campaign_day
+
+        campaign = _active_campaign(db)
+        if campaign is None:
+            return
+        existing = db.scalar(
+            select(CampaignDay).where(
+                CampaignDay.campaign_id == campaign.id,
+                CampaignDay.market_date == date.today(),
+            )
+        )
+        if existing is None:
+            start_campaign_day(db, campaign, settings, date.today())
+
+
+@logged_job("campaign_end_of_day")
+def campaign_end_of_day_job() -> None:
+    settings = get_settings()
+    with SessionLocal() as db:
+        from app.services.campaigns import complete_campaign_day
+
+        campaign = _active_campaign(db)
+        if campaign is None:
+            return
+        day = db.scalar(
+            select(CampaignDay).where(
+                CampaignDay.campaign_id == campaign.id,
+                CampaignDay.market_date == date.today(),
+                CampaignDay.eod_completed.is_(False),
+            )
+        )
+        if day:
+            complete_campaign_day(db, campaign, day, settings)
+
+
+@logged_job("campaign_drift_detection")
+def campaign_drift_detection_job() -> None:
+    with SessionLocal() as db:
+        from app.services.campaigns import (
+            detect_missed_trading_days,
+            recover_campaigns_after_restart,
+        )
+
+        campaign = _active_campaign(db)
+        if campaign:
+            detect_missed_trading_days(db, campaign, date.today() - timedelta(days=1))
+        recover_campaigns_after_restart(db, date.today())
+
+
 # Background scheduler global instance
 _scheduler: BackgroundScheduler | None = None
 
@@ -254,9 +335,19 @@ def start_scheduler() -> None:
     _scheduler.add_job(update_dsex_job, "interval", minutes=5, id="update_dsex")
     _scheduler.add_job(scan_signals_job, "interval", minutes=5, id="scan_signals")
     _scheduler.add_job(scan_news_job, "interval", minutes=15, id="scan_news")
+    _scheduler.add_job(
+        campaign_drift_detection_job,
+        "interval",
+        minutes=30,
+        id="campaign_drift_detection",
+    )
 
     # Daily snapshots
     _scheduler.add_job(reconciliation_job, "cron", hour=17, minute=0, id="reconciliation")
+    _scheduler.add_job(campaign_premarket_job, "cron", hour=3, minute=45, id="campaign_premarket")
+    _scheduler.add_job(
+        campaign_end_of_day_job, "cron", hour=11, minute=10, id="campaign_end_of_day"
+    )
     _scheduler.add_job(
         end_of_day_snapshot_job, "cron", hour=17, minute=15, id="end_of_day_snapshot"
     )

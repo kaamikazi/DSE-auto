@@ -163,6 +163,7 @@ class PaperBroker(BrokerAdapter):
                 account_label="paper",
                 notes=f"Paper fill for {order.id}",
                 source_record={"order_id": order.id, "simulated": True},
+                campaign_id=order.campaign_id,
             )
         )
         append_audit(
