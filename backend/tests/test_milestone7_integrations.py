@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 
 import pytest
-from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, text
 
+from alembic import command
 from app.services.task_queue import RedisBroker
 
 POSTGRES_URL = os.getenv("TEST_POSTGRES_URL")
