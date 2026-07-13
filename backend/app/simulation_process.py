@@ -13,6 +13,7 @@ def main() -> None:
     parser.add_argument("--campaign", default="m7-distributed-30-day")
     parser.add_argument("--start-day", type=int, required=True)
     parser.add_argument("--end-day", type=int, required=True)
+    parser.add_argument("--total-days", type=int, default=30)
     parser.add_argument("--require-distributed", action="store_true")
     args = parser.parse_args()
     with SessionLocal() as db:
@@ -22,6 +23,7 @@ def main() -> None:
             campaign_name=args.campaign,
             start_day=args.start_day,
             end_day=args.end_day,
+            total_days=args.total_days,
             require_distributed=args.require_distributed,
         )
     print(json.dumps(result, indent=2, default=str))

@@ -2,16 +2,21 @@ import os
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Literal
 
 # Ensure backend directory is in path so we can import app modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
+sys.path.append(
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+)
 
 from app.backtesting.engine import run_backtest
 from app.schemas.market import HistoricalBar
 from app.schemas.trading import BacktestRequest
 
 
-def generate_synthetic_data(days: int = 500) -> tuple[list[HistoricalBar], list[HistoricalBar]]:
+def generate_synthetic_data(
+    days: int = 500,
+) -> tuple[list[HistoricalBar], list[HistoricalBar]]:
     gp_bars = []
     dsex_bars = []
 
@@ -74,7 +79,12 @@ def main() -> None:
     print("Generating synthetic market bars...")
     gp_bars, dsex_bars = generate_synthetic_data()
 
-    strategies = [
+    strategies: list[
+        tuple[
+            Literal["buy_hold", "ma_crossover", "momentum_dsex", "volume_breakout"],
+            dict[str, float | int],
+        ]
+    ] = [
         ("buy_hold", {}),
         ("ma_crossover", {"fast": 20, "slow": 50}),
         ("momentum_dsex", {"lookback": 60}),

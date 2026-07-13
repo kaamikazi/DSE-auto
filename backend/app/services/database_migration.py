@@ -60,6 +60,27 @@ def database_fingerprints(engine: Engine) -> tuple[dict[str, int], dict[str, str
     return counts, hashes
 
 
+def compare_database_fingerprints(source: Engine, destination: Engine) -> dict[str, Any]:
+    source_counts, source_hashes = database_fingerprints(source)
+    destination_counts, destination_hashes = database_fingerprints(destination)
+    count_mismatches = {
+        table: {"source": source_counts.get(table), "destination": destination_counts.get(table)}
+        for table in sorted(set(source_counts) | set(destination_counts))
+        if source_counts.get(table) != destination_counts.get(table)
+    }
+    hash_mismatches = {
+        table: {"source": source_hashes.get(table), "destination": destination_hashes.get(table)}
+        for table in sorted(set(source_hashes) | set(destination_hashes))
+        if source_hashes.get(table) != destination_hashes.get(table)
+    }
+    return {
+        "verified": not count_mismatches and not hash_mismatches,
+        "count_mismatches": count_mismatches,
+        "hash_mismatches": hash_mismatches,
+        "fail_closed": bool(count_mismatches or hash_mismatches),
+    }
+
+
 def migrate_sqlite_to_postgresql(
     source_url: str,
     destination_url: str,

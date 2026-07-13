@@ -18,12 +18,17 @@ os.environ.update(
     }
 )
 
+from app.core.config import get_settings  # noqa: E402
 from app.core.database import Base, SessionLocal, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def clean_database() -> Generator[None, None, None]:
+def clean_database(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    # Keep provider fallbacks isolated from operational/imported CSV evidence. Without
+    # this boundary, order-approval tests can consume a stale file left by a prior
+    # paper-session exercise and correctly (but nondeterministically) fail closed.
+    monkeypatch.setattr(get_settings(), "CSV_DATA_DIR", tmp_path / "csv")
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield

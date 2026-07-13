@@ -7,7 +7,11 @@ from app.models import PaperAccount, RiskState, Transaction
 Base.metadata.create_all(engine)
 with SessionLocal() as db:
     if db.get(PaperAccount, 1) is None:
-        db.add(PaperAccount(id=1, cash=Decimal("1000000"), starting_cash=Decimal("1000000")))
+        db.add(
+            PaperAccount(
+                id=1, cash=Decimal("1000000"), starting_cash=Decimal("1000000")
+            )
+        )
     if db.get(RiskState, 1) is None:
         db.add(RiskState(id=1, state="healthy", reason="Seeded paper environment"))
     if not db.query(Transaction).first():

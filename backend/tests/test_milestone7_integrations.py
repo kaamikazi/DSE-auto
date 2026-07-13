@@ -22,12 +22,12 @@ def test_postgresql_clean_migration_downgrade_and_reupgrade() -> None:
     command.upgrade(config, "head")
     engine = create_engine(POSTGRES_URL)
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
         assert connection.scalar(text("SELECT 1")) == 1
     command.downgrade(config, "0007")
     command.upgrade(config, "head")
     with engine.connect() as connection:
-        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0008"
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
     engine.dispose()
 
 
