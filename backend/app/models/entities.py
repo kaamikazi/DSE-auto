@@ -240,6 +240,9 @@ class ValidationCampaign(Base):
     state: Mapped[str] = mapped_column(String(32), default="configured", index=True)
     active_rule_set_id: Mapped[str] = mapped_column(String(36))
     active_fee_profile_id: Mapped[str] = mapped_column(String(36))
+    evidence_class: Mapped[str] = mapped_column(String(32), default="synthetic", index=True)
+    provider_certification_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    daily_reviewer_assignments: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -261,6 +264,17 @@ class CampaignDay(Base):
     evidence_path: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_class: Mapped[str] = mapped_column(String(32), default="synthetic", index=True)
+
+
+class ProviderCertification(Base):
+    __tablename__ = "provider_certifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    provider_id: Mapped[str] = mapped_column(String(100), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    integrity_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    certified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class MarketRuleSet(Base):

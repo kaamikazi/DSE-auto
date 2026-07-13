@@ -1,0 +1,35 @@
+{
+  "name": "real-market-60-day-YYYY-MM-DD",
+  "evidence_class": "real_market",
+  "planned_trading_days": 60,
+  "approved_symbols": [],
+  "approved_strategies": [],
+  "provider_certification_id": null,
+  "daily_reviewer_assignments": {},
+  "timestamp_trust_requirement": "exchange_verified",
+  "fill_model": "pessimistic",
+  "benchmark": "DSEX",
+  "evidence_checklist": [
+    "provider certification valid",
+    "full quote and timestamp capture",
+    "signals and rejections captured",
+    "paper proposals and fills captured",
+    "reconciliation healthy",
+    "audit valid",
+    "backup successful",
+    "independent review complete"
+  ],
+  "pause_rules": [
+    "provider certification expires or is revoked",
+    "timestamp provenance falls below exchange_verified",
+    "scheduler or worker heartbeat becomes stale",
+    "audit, reconciliation, or backup fails",
+    "critical incident is unresolved"
+  ],
+  "invalidation_rules": [
+    "synthetic or imported data is mixed into a qualifying day",
+    "evidence is altered after reviewer acceptance",
+    "unlicensed provider data is used",
+    "paper-only safety assertions fail"
+  ]
+}

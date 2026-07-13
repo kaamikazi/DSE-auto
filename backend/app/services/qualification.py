@@ -12,12 +12,22 @@ from app.models import (
     EvidenceReview,
     OperationalIncident,
     PaperQualification,
+    ValidationCampaign,
 )
 
 
 def calculate_qualification(
-    db: Session, campaign_id: str, *, target_days: int = 60
+    db: Session,
+    campaign_id: str,
+    *,
+    target_days: int = 60,
+    qualification_scope: str = "paper",
 ) -> PaperQualification:
+    if qualification_scope not in {"paper", "real_market"}:
+        raise ValueError("Unknown qualification scope")
+    campaign = db.get(ValidationCampaign, campaign_id)
+    if campaign is None and qualification_scope == "real_market":
+        raise ValueError("Campaign not found")
     days = list(
         db.scalars(
             select(CampaignDay)
@@ -70,6 +80,19 @@ def calculate_qualification(
         and day in backup_valid
         and day.market_date in quality_dates
     ]
+    if qualification_scope == "real_market":
+        real_market_eligible = bool(
+            campaign
+            and campaign.evidence_class == "real_market"
+            and campaign.provider_certification_id
+        )
+        qualifying_days = [
+            day
+            for day in qualifying_days
+            if real_market_eligible
+            and day.evidence_class == "real_market"
+            and bool(day.summary.get("provider_certified"))
+        ]
     unresolved_critical = list(
         db.scalars(
             select(OperationalIncident).where(
@@ -95,6 +118,10 @@ def calculate_qualification(
         ),
         "qualifying_days": len(qualifying_days),
         "unresolved_critical_incidents": len(unresolved_critical),
+        "qualification_scope": qualification_scope,
+        "real_market_evidence_days": len(
+            [day for day in completed if day.evidence_class == "real_market"]
+        ),
     }
     failures: list[str] = []
     if len(reviewed) < len(completed):
@@ -109,6 +136,14 @@ def calculate_qualification(
         failures.append("data_quality_unacceptable_or_missing")
     if unresolved_critical:
         failures.append("unresolved_critical_incidents")
+    if qualification_scope == "real_market" and (
+        campaign is None or campaign.evidence_class != "real_market"
+    ):
+        failures.append("campaign_not_real_market")
+    if qualification_scope == "real_market" and (
+        campaign is None or not campaign.provider_certification_id
+    ):
+        failures.append("licensed_provider_not_certified")
     remaining = max(target_days - len(qualifying_days), 0)
     if remaining:
         failures.append("qualification_target_not_met")

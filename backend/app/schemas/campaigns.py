@@ -23,6 +23,9 @@ class CampaignCreate(BaseModel):
     active_rule_set_id: str
     active_fee_profile_id: str
     account_id: int = 1
+    evidence_class: Literal["synthetic", "imported", "real_market"] = "synthetic"
+    provider_certification_id: str | None = None
+    daily_reviewer_assignments: dict[str, str] = Field(default_factory=dict)
 
 
 class RuleSetCreate(BaseModel):

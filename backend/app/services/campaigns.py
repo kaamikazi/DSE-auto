@@ -23,6 +23,7 @@ from app.models import (
     Order,
     PaperAccount,
     PaperSession,
+    ProviderCertification,
     RiskState,
     Transaction,
     ValidationCampaign,
@@ -77,6 +78,9 @@ def campaign_view(campaign: ValidationCampaign) -> dict[str, Any]:
         "state": campaign.state,
         "active_rule_set_id": campaign.active_rule_set_id,
         "active_fee_profile_id": campaign.active_fee_profile_id,
+        "evidence_class": campaign.evidence_class,
+        "provider_certification_id": campaign.provider_certification_id,
+        "daily_reviewer_assignments": campaign.daily_reviewer_assignments,
     }
 
 
@@ -98,6 +102,9 @@ def create_campaign(
     active_rule_set_id: str,
     active_fee_profile_id: str,
     account_id: int = 1,
+    evidence_class: str = "synthetic",
+    provider_certification_id: str | None = None,
+    daily_reviewer_assignments: dict[str, str] | None = None,
 ) -> ValidationCampaign:
     if planned_end_date < start_date:
         raise ValueError("Campaign end date precedes its start date")
@@ -107,6 +114,17 @@ def create_campaign(
         raise ValueError("Unknown fill model")
     if timestamp_trust_requirement not in {"operator_attested", "exchange_verified"}:
         raise ValueError("Campaign timestamp trust must be operator_attested or exchange_verified")
+    if evidence_class not in {"synthetic", "imported", "real_market"}:
+        raise ValueError("Unknown campaign evidence class")
+    certification = (
+        db.get(ProviderCertification, provider_certification_id)
+        if provider_certification_id
+        else None
+    )
+    if evidence_class == "real_market" and (
+        certification is None or certification.status != "passed"
+    ):
+        raise ValueError("Real-market campaigns require a passing licensed-provider certification")
     rule_set = db.get(MarketRuleSet, active_rule_set_id)
     fee_profile = db.get(FeeProfile, active_fee_profile_id)
     if rule_set is None or rule_set.verification_status == "deprecated":
@@ -129,6 +147,9 @@ def create_campaign(
         operator_notes=operator_notes,
         active_rule_set_id=active_rule_set_id,
         active_fee_profile_id=active_fee_profile_id,
+        evidence_class=evidence_class,
+        provider_certification_id=provider_certification_id,
+        daily_reviewer_assignments=daily_reviewer_assignments or {},
     )
     db.add(campaign)
     db.flush()
@@ -368,6 +389,7 @@ def start_campaign_day(
     day = CampaignDay(
         campaign_id=campaign.id,
         market_date=market_date,
+        evidence_class=campaign.evidence_class,
         session_id=session.id,
         state="market_open",
         premarket_completed=True,
