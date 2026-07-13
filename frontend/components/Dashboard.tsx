@@ -248,6 +248,12 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
     counts && Object.keys(counts).length
       ? Object.entries(counts).map(([state, count]) => `${state}: ${count}`).join(" · ")
       : "No records";
+  const productionCoreHealthy = Boolean(
+    infrastructure?.database.healthy &&
+    infrastructure.database.dialect === "postgresql" &&
+    infrastructure.redis.healthy &&
+    infrastructure.redis.backend === "redis"
+  );
 
   return (
     <main className="p-5 md:p-8 space-y-6">
@@ -290,8 +296,8 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
       <section className="rounded-xl border border-line bg-panel p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><h2 className="font-semibold text-lg">Production-Like Paper Infrastructure</h2><p className="text-xs text-slate-500">Durable state, human review, recovery evidence, and migration readiness</p></div>
-          <span className={`rounded px-2 py-1 text-xs font-mono ${infrastructure?.database.healthy && infrastructure?.redis.healthy ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
-            {infrastructure?.database.healthy && infrastructure?.redis.healthy ? "CORE HEALTHY" : "CHECK INFRASTRUCTURE"}
+          <span className={`rounded px-2 py-1 text-xs font-mono ${productionCoreHealthy ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+            {productionCoreHealthy ? "DISTRIBUTED CORE HEALTHY" : "PRODUCTION-LIKE CORE UNVERIFIED"}
           </span>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

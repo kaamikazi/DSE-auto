@@ -9,6 +9,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from sqlalchemy import Engine, MetaData, Table, create_engine, func, insert, select
 
+import app.models  # noqa: F401  # Register all mapped tables in Base.metadata.
 from app.core.database import Base
 
 

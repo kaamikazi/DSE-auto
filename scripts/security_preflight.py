@@ -35,8 +35,15 @@ def scan_secrets(root: Path) -> list[dict[str, Any]]:
         for number, line in enumerate(text.splitlines(), 1):
             if "change-me" in line or "example" in line.lower() or "${" in line:
                 continue
-            if any(pattern.search(line) for pattern in SECRET_PATTERNS):
+            for pattern in SECRET_PATTERNS:
+                match = pattern.search(line)
+                if match is None:
+                    continue
+                captured = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+                if captured.lower().startswith(("settings.", "os.environ", "get_settings")):
+                    continue
                 findings.append({"file": str(path.relative_to(root)), "line": number})
+                break
     return findings
 
 

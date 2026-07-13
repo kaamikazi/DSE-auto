@@ -9,3 +9,7 @@ if (-not (Test-Path -LiteralPath $OutputPath) -or (Get-Item -LiteralPath $Output
   throw "PostgreSQL backup is empty"
 }
 Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPath
+$user = "$env:USERDOMAIN\$env:USERNAME"
+icacls $OutputPath /inheritance:r | Out-Null
+icacls $OutputPath /grant:r "${user}:(F)" "BUILTIN\Administrators:(F)" "NT AUTHORITY\SYSTEM:(F)" | Out-Null
+Write-Output "Backup ACL restricted to the operator, Administrators, and SYSTEM."

@@ -18,6 +18,8 @@ data/cache/*
 data/reports/*
 data/backups/*
 reports/campaigns/
+reports/disaster_recovery/
+reports/distributed_simulation/
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 !data/backups/.gitkeep
