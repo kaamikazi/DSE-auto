@@ -210,6 +210,15 @@ def _audit_verify(db: Session, _: dict[str, Any]) -> dict[str, Any]:
     return {"valid": verify_audit_chain(db)}
 
 
+def _simulation_day(_: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "simulated": True,
+        "day": payload.get("day"),
+        "symbols": payload.get("symbols", []),
+        "strategies": payload.get("strategies", []),
+    }
+
+
 DEFAULT_TASK_HANDLERS: dict[str, TaskHandler] = {
     "market_data_ingestion": _legacy_job("refresh_quotes_job"),
     "campaign_scans": _legacy_job("campaign_drift_detection_job"),
@@ -221,6 +230,7 @@ DEFAULT_TASK_HANDLERS: dict[str, TaskHandler] = {
     "backups": _legacy_job("end_of_day_snapshot_job"),
     "audit_verification": _audit_verify,
     "incident_notifications": _legacy_job("scan_news_job"),
+    "simulation_day": _simulation_day,
 }
 
 

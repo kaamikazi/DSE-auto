@@ -33,6 +33,7 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --disable-warnings --strict-markers"
+markers = ["integration: requires explicitly configured external PostgreSQL/Redis services"]
 
 [tool.ruff]
 line-length = 100
