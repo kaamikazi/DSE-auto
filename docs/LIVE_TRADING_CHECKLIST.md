@@ -47,3 +47,18 @@ Milestone 6 does not enable broker execution. `TRADING_MODE=paper`, `LIVE_TRADIN
 - [ ] Obtain official broker API documentation, permission, legal/compliance review and a separately designed live release
 
 Milestone 7 remains production-like paper infrastructure only. No checklist completion can activate the current disabled broker adapter.
+
+## Milestone 8 blockers
+
+- [ ] Infrastructure doctor passes on the deployment machine with healthy Docker Linux engine and sufficient memory/disk.
+- [ ] Clean PostgreSQL `0001`→`0009`, downgrade/re-upgrade, deadlock/serialization/pool, and restart exercises pass with preserved reports.
+- [ ] Operational SQLite copy migrates to a new PostgreSQL database with matching counts/hashes, valid audit chain, constraints, campaign/review/qualification, and backup metadata.
+- [ ] Real Redis, separate scheduler, API, and two workers pass duplicate delivery, leases, retry, dead-letter, stale recovery, graceful/abrupt termination, and store restart tests.
+- [ ] The distributed ten-day infrastructure campaign passes; it remains engineering evidence and counts as zero real-market days.
+- [ ] A secret-free recovery bundle and PostgreSQL-native backup restore successfully on a separate clean machine with reviewed manifests/RPO/RTO.
+- [ ] A contractually licensed DSE provider passes every certification check, including exchange timestamp provenance, freshness, coverage, reconnects, history, actions, depth, DSEX, SLA, and licensing.
+- [ ] Sixty real-market paper days use only certified data and receive independent daily/weekly review; synthetic/imported days remain excluded.
+- [ ] Independent monitoring/alerts, secrets/KMS, encrypted backups, host redundancy, access review, legal/compliance, and official broker approval are complete.
+- [ ] A separately scoped live system is designed, reviewed, and released; the current broker adapter remains disabled.
+
+Milestone 8 does not add or authorize live execution. `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain hard gates.

@@ -39,3 +39,18 @@
 - **Notification independence**: Telegram/console fallback does not meet independent out-of-band alerting requirements.
 - **Data-quality thresholds**: Default thresholds exercise fail-closed logic but require calibration and independent approval against a licensed real feed and actual DSE sessions.
 - **Backup encryption**: ACL restriction is automated; encrypted secret/database storage depends on an external approved encryption/key-management process.
+
+## Milestone 8 limitations
+
+- **Machine preflight blocked**: Docker Desktop is installed, but its service/Linux engine was stopped during verification. PostgreSQL, Redis, real workers/scheduler, restarts, and the distributed ten-day campaign remain unverified.
+- **Memory headroom**: Available RAM was below the required 4 GB preflight threshold. The start script fails closed until the operator frees memory.
+- **Offline incidents are not outages**: Controlled incident reports prove audit/fail-closed workflow behavior, not real process recovery. Real evidence requires the Docker harness.
+- **No licensed feed certified**: The certification framework exists; the fake adapter fails its test-only license. Zero real-market days exist.
+- **Single-host topology**: The production-like profile has durable stores and independent processes but no PostgreSQL replica, Redis HA, multi-host orchestration, or automatic host failover.
+- **Recovery source database**: The clean-machine bundle currently backs up SQLite. PostgreSQL-native clean-machine backup/restore evidence remains blocked with Docker.
+- **Secrets and encryption**: Bundles exclude secrets, but independent key management, encrypted database backups, credential rotation, and enterprise identity remain external requirements.
+- **Audit freshness**: Vulnerability and license inventories are point-in-time evidence and must be regenerated before each release.
+- **Research extra**: `quantstats` is intentionally excluded from operational locks and must not be installed into the paper runtime without separate pinning/review.
+- **Existing virtual environment**: The checked-out `.venv` contains stale editable metadata referring to the independent Antigravity workspace. Verification explicitly pins `PYTHONPATH` to this repository; operators should replace that environment from the hash-locked requirements.
+- **Optional Playwright metadata**: `@playwright/test` appears only as an optional peer entry in `package-lock.json`; it is not an application dependency or browser-automation implementation.
+- **Provider timestamp trust**: Both current public-provider diagnostic reports classify exchange timestamp support as unsupported. Neither provider can authorize paper-order approval under the trusted-timestamp gate.

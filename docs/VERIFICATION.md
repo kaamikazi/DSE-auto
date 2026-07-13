@@ -137,3 +137,25 @@ Compose configuration validates, but `docker version` cannot connect to `dockerD
 ### Final safety state
 
 `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain mandatory. Live order execution, browser automation, OTP/CAPTCHA handling, unofficial broker access, AI approval, automatic promotion, and TLS verification bypass remain absent.
+
+## Milestone 8 verification — 2026-07-13
+
+Verdict: **LOCAL/OFFLINE HARDENING PASSED; REAL DISTRIBUTED EXECUTION BLOCKED**.
+
+| Check | Classification | Result and evidence |
+| --- | --- | --- |
+| Backend suite | Verified locally | 121 collected: 119 passed; PostgreSQL and Redis integration tests skipped because `TEST_POSTGRES_URL` and `TEST_REDIS_URL` are not configured. |
+| Ruff / strict mypy | Verified locally | Format and lint passed across 125 Python files; strict mypy passed across 94 source files. |
+| Alembic `0009` | Verified locally | Clean base-to-head, `0009` downgrade to `0008`, re-upgrade, schema assertions, and migration preflight passed on isolated SQLite. The operational database was backed up before upgrade and is at `0009`. |
+| Frontend | Verified locally | `npm ci`, TypeScript, ESLint, production build, and `npm audit` passed; audit reported zero vulnerabilities. Permanent paper/live-disabled banners remain rendered. |
+| Dependency locks | Verified locally | Runtime, development, testing, and provider input/lock pairs are exact and SHA-256 hashed. A fresh Python 3.12 environment installed `testing.lock.txt` with `--require-hashes`; app imports and five API smoke tests passed. |
+| Dependency/security scans | Verified locally at scan time | `pip-audit` and `npm audit` reported zero known findings; inventories, licenses, SBOMs, and hashes were generated. The repository scan found no literal secrets and confirmed no public-binding default. Windows `.env` ACL remains an explicit operator review. |
+| Recovery controls | Unit-tested and locally exercised | Bundle manifest hashing, tamper rejection, SQLite restore, audit/archive verification, record counts, migration state, dependency locks, forbidden-path exclusions, and paper-only settings pass. Final isolated extraction/startup/build evidence is generated under ignored `reports/recovery/`. |
+| Infrastructure doctor | Blocked / fail closed | Docker CLI and Compose, WSL2, virtualization, ports, and disk passed. Docker service/Linux engine, PostgreSQL, Redis, and the 4 GB free-memory threshold failed. The start script stopped before Compose. |
+| Incident exercises | Simulated locally | All 17 controlled scenarios produced incident and audit evidence, failed closed, and recorded automatic-recovery versus operator-action outcomes. They are not real outage tests. |
+| Provider certification | Framework verified locally; providers blocked | The fake adapter passes technical contract checks but is rejected as test-only/unlicensed. `bdshare` failed verified DNS access to the HTTPS DSE hosts; `bdfinance` has no installed published runtime. No real provider is certified. |
+| Real-market evidence isolation | Verified locally | Synthetic/imported evidence cannot count toward real-market qualification. Operator-attested imports remain paper-validation data, not exchange-verified live data. |
+| PostgreSQL / Redis / worker / scheduler | Blocked, not integration-tested | Docker's Linux engine is unavailable. No real service restart, delivery, database migration, PostgreSQL backup/restore, or multi-process claim is made. |
+| Distributed ten-day campaign | Blocked / not run | The harness is implemented, but its doctor and credential gates prevent execution without real services. |
+
+Status terms in this section are deliberate: “verified locally” means an actual host command completed; “simulated” means controlled failure injection only; “blocked” means no passing result is claimed; “not implemented” remains applicable to live broker execution, browser automation, OTP/CAPTCHA handling, AI approval, and automatic strategy promotion.
