@@ -9,6 +9,7 @@ from app.brokers.base import BrokerAdapter
 from app.brokers.dse_execution import DSEExecutionContext, DSEExecutionRules
 from app.models import Order, PaperAccount, Transaction
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 FILLABLE = {"approved", "submitted", "partially_filled"}
 
@@ -81,6 +82,15 @@ class PaperBroker(BrokerAdapter):
             else order.limit_price <= market_price
         )
         order.status = "submitted"
+        emit_event(
+            self.db,
+            "order_submitted",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            payload={"status": order.status, "fill_model": self.fill_model},
+            idempotency_key=f"order-submitted:{order.id}",
+            correlation_id=order.id,
+        )
         if not crosses or available_volume <= 0:
             append_audit(
                 self.db,
@@ -114,6 +124,15 @@ class PaperBroker(BrokerAdapter):
         fee = (gross * Decimal("0.004")).quantize(Decimal("0.01"))
         if order.side == "buy" and account.cash < gross + fee:
             order.status = "rejected"
+            emit_event(
+                self.db,
+                "risk_rejected",
+                aggregate_type="order",
+                aggregate_id=order.id,
+                payload={"reason": "insufficient_cash"},
+                idempotency_key=f"risk-rejected:{order.id}:insufficient-cash",
+                correlation_id=order.id,
+            )
             append_audit(
                 self.db,
                 actor="paper_broker",
@@ -129,6 +148,15 @@ class PaperBroker(BrokerAdapter):
             held = self._held_quantity(order.symbol)
             if held < fill_quantity:
                 order.status = "rejected"
+                emit_event(
+                    self.db,
+                    "risk_rejected",
+                    aggregate_type="order",
+                    aggregate_id=order.id,
+                    payload={"reason": "insufficient_shares"},
+                    idempotency_key=f"risk-rejected:{order.id}:insufficient-shares",
+                    correlation_id=order.id,
+                )
                 append_audit(
                     self.db,
                     actor="paper_broker",
@@ -165,6 +193,21 @@ class PaperBroker(BrokerAdapter):
                 source_record={"order_id": order.id, "simulated": True},
                 campaign_id=order.campaign_id,
             )
+        )
+        emit_event(
+            self.db,
+            "fill_completed" if order.status == "filled" else "partial_fill",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            payload={
+                "status": order.status,
+                "fill_quantity": fill_quantity,
+                "filled_quantity": order.filled_quantity,
+                "average_fill_price": str(order.average_fill_price),
+            },
+            idempotency_key=f"fill:{order.id}:{order.filled_quantity}",
+            correlation_id=order.id,
+            causation_id=f"order-submitted:{order.id}",
         )
         append_audit(
             self.db,
@@ -242,13 +285,32 @@ class PaperBroker(BrokerAdapter):
             elif t.transaction_type == "adjustment":
                 derived_cash += prc
         cash_reconciled = abs(account.cash - derived_cash) <= Decimal("0.01")
-        return {
+        result: dict[str, object] = {
             "healthy": duplicate_count is None and account.cash >= 0 and cash_reconciled,
             "cash": str(account.cash),
             "derived_cash": str(derived_cash),
             "duplicate_orders": duplicate_count is not None,
             "cash_reconciled": cash_reconciled,
         }
+        event = emit_event(
+            self.db,
+            "reconciliation_completed",
+            aggregate_type="paper_account",
+            aggregate_id="1",
+            payload=result,
+            idempotency_key=f"reconciliation:{len(transactions)}:{account.cash}",
+        )
+        audit = append_audit(
+            self.db,
+            actor="paper_broker",
+            event_type="paper.reconciliation_completed",
+            entity_type="paper_account",
+            entity_id="1",
+            new_state=result,
+        )
+        event.audit_event_id = audit.id
+        self.db.commit()
+        return result
 
     def reset_account(self, starting_cash: Decimal) -> None:
         account = self._account()

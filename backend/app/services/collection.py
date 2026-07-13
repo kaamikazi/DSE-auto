@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.data.providers.base import MarketDataProvider
 from app.models import MarketBar
 from app.services.audit import append_audit
+from app.services.data_quality import measure_data_quality, persist_observations
+from app.services.events import emit_event
 
 
 class CollectionService:
@@ -53,6 +55,24 @@ class CollectionService:
 
     def current_quote_refresh(self, symbols: list[str]) -> dict[str, object]:
         quotes = self.provider.get_quotes(symbols)
+        for quote in quotes:
+            emit_event(
+                self.db,
+                "quote_received",
+                aggregate_type="quote",
+                aggregate_id=quote.symbol,
+                payload=quote.model_dump(mode="json"),
+                idempotency_key=(
+                    f"quote:{quote.source}:{quote.symbol}:{quote.market_timestamp.isoformat()}"
+                ),
+                correlation_id=self.campaign_id,
+            )
+        quality = measure_data_quality(
+            quotes,
+            expected_symbols={symbol.upper() for symbol in symbols},
+            max_quote_age_seconds=30,
+        )
+        persist_observations(self.db, quotes, quality, campaign_id=self.campaign_id)
         append_audit(
             self.db,
             actor="collector",

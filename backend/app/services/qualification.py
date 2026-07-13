@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.models import (
+    CampaignDay,
+    DataQualityReport,
+    EvidenceReview,
+    OperationalIncident,
+    PaperQualification,
+)
+
+
+def calculate_qualification(
+    db: Session, campaign_id: str, *, target_days: int = 60
+) -> PaperQualification:
+    days = list(
+        db.scalars(
+            select(CampaignDay)
+            .where(CampaignDay.campaign_id == campaign_id)
+            .order_by(CampaignDay.market_date)
+        )
+    )
+    reviews = {
+        item.campaign_day_id: item
+        for item in db.scalars(
+            select(EvidenceReview).where(EvidenceReview.campaign_id == campaign_id)
+        )
+    }
+    reports = list(
+        db.scalars(select(DataQualityReport).where(DataQualityReport.campaign_id == campaign_id))
+    )
+    quality_dates = {
+        day.market_date
+        for day in days
+        if any(
+            report.passed and report.start_date <= day.market_date <= report.end_date
+            for report in reports
+        )
+    }
+    completed = [day for day in days if day.eod_completed and day.state == "completed"]
+    reviewed = [day for day in completed if reviews.get(day.id) is not None]
+    accepted = [
+        day for day in completed if reviews.get(day.id) and reviews[day.id].state == "accepted"
+    ]
+    rejected = [
+        day for day in completed if reviews.get(day.id) and reviews[day.id].state == "rejected"
+    ]
+    rerun = [
+        day
+        for day in completed
+        if reviews.get(day.id) and reviews[day.id].state == "requires_rerun"
+    ]
+    audit_valid = [day for day in completed if bool(day.summary.get("audit_valid"))]
+    reconciliation_valid = [
+        day for day in completed if bool(day.summary.get("reconciliation", {}).get("healthy"))
+    ]
+    backup_valid = [
+        day for day in completed if bool(day.summary.get("backup", {}).get("successful"))
+    ]
+    qualifying_days = [
+        day
+        for day in accepted
+        if day in audit_valid
+        and day in reconciliation_valid
+        and day in backup_valid
+        and day.market_date in quality_dates
+    ]
+    unresolved_critical = list(
+        db.scalars(
+            select(OperationalIncident).where(
+                OperationalIncident.campaign_id == campaign_id,
+                OperationalIncident.severity == "critical",
+                OperationalIncident.state.not_in(("resolved",)),
+            )
+        )
+    )
+    counts: dict[str, Any] = {
+        "planned_trading_days": target_days,
+        "completed_days": len(completed),
+        "reviewed_days": len(reviewed),
+        "accepted_days": len(accepted),
+        "rejected_days": len(rejected),
+        "missing_days": max(target_days - len(completed), 0),
+        "rerun_required_days": len(rerun),
+        "audit_valid_days": len(audit_valid),
+        "reconciliation_valid_days": len(reconciliation_valid),
+        "backup_valid_days": len(backup_valid),
+        "data_quality_passing_days": len(
+            [day for day in completed if day.market_date in quality_dates]
+        ),
+        "qualifying_days": len(qualifying_days),
+        "unresolved_critical_incidents": len(unresolved_critical),
+    }
+    failures: list[str] = []
+    if len(reviewed) < len(completed):
+        failures.append("completed_day_missing_review")
+    if len(audit_valid) < len(completed):
+        failures.append("audit_invalid_or_missing")
+    if len(reconciliation_valid) < len(completed):
+        failures.append("reconciliation_invalid_or_missing")
+    if len(backup_valid) < len(completed):
+        failures.append("backup_invalid_or_missing")
+    if len(quality_dates) < len(completed):
+        failures.append("data_quality_unacceptable_or_missing")
+    if unresolved_critical:
+        failures.append("unresolved_critical_incidents")
+    remaining = max(target_days - len(qualifying_days), 0)
+    if remaining:
+        failures.append("qualification_target_not_met")
+    snapshot = db.scalar(
+        select(PaperQualification).where(PaperQualification.campaign_id == campaign_id)
+    )
+    if snapshot is None:
+        snapshot = PaperQualification(campaign_id=campaign_id)
+        db.add(snapshot)
+    snapshot.target_days = target_days
+    snapshot.counts = counts
+    snapshot.qualifying = not failures and remaining == 0
+    snapshot.failure_reasons = failures
+    snapshot.remaining_qualifying_days = remaining
+    snapshot.calculated_at = datetime.now(UTC)
+    db.commit()
+    return snapshot

@@ -18,6 +18,9 @@ class RiskLimits:
     max_provider_disagreement_percent: Decimal = Decimal("1")
     max_price_deviation_percent: Decimal = Decimal("2")
     max_spread_percent: Decimal = Decimal("1.5")
+    max_daily_loss_percent: Decimal = Decimal("3")
+    max_campaign_drawdown_percent: Decimal = Decimal("10")
+    repeated_loss_cooldown_count: int = 3
     restricted_symbols: tuple[str, ...] = ()
     approved_symbols: tuple[str, ...] = ()
 
@@ -39,6 +42,12 @@ class RiskEngine:
         open_orders: int = 0,
         data_age_seconds: float = 0,
         max_data_age_seconds: int = 30,
+        daily_loss_percent: Decimal = Decimal("0"),
+        campaign_drawdown_percent: Decimal = Decimal("0"),
+        consecutive_losses: int = 0,
+        strategy_suspended: bool = False,
+        restart_reconciled: bool = True,
+        reconciliation_healthy: bool = True,
     ) -> RiskDecision:
         codes: list[str] = []
         reasons: list[str] = []
@@ -49,6 +58,18 @@ class RiskEngine:
 
         if kill_switch_state != "healthy":
             reject("KILL_SWITCH_NOT_HEALTHY", f"Kill switch state is {kill_switch_state}")
+        if daily_loss_percent >= self.limits.max_daily_loss_percent:
+            reject("DAILY_LOSS_LIMIT", "Daily loss limit has been reached")
+        if campaign_drawdown_percent >= self.limits.max_campaign_drawdown_percent:
+            reject("CAMPAIGN_DRAWDOWN_LIMIT", "Campaign drawdown limit has been reached")
+        if consecutive_losses >= self.limits.repeated_loss_cooldown_count:
+            reject("REPEATED_LOSS_COOLDOWN", "Strategy is in a repeated-loss cooldown")
+        if strategy_suspended:
+            reject("STRATEGY_SUSPENDED", "Strategy is suspended")
+        if not restart_reconciled:
+            reject("RESTART_RECONCILIATION_REQUIRED", "Restart recovery is incomplete")
+        if not reconciliation_healthy:
+            reject("RECONCILIATION_MISMATCH", "Paper account reconciliation is unhealthy")
         if proposal.data_quality_status == "unsafe" or data_age_seconds > max_data_age_seconds:
             reject("STALE_OR_UNSAFE_DATA", "Market data is stale or unsafe")
         if (

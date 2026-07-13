@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.models import ImportBatch, MarketBar, ValidationCampaign
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 ATTESTATION = "I confirm this file represents the stated market date and source."
 IMPORT_KINDS = {"quote", "ohlcv", "dsex"}
@@ -219,6 +220,19 @@ def activate_attested_import(
         )
     batch.status = "activated"
     batch.activated_at = datetime.now(UTC)
+    emit_event(
+        db,
+        "data_activated",
+        aggregate_type="import_batch",
+        aggregate_id=batch.id,
+        payload={
+            "rows": len(rows),
+            "campaign_id": batch.campaign_id,
+            "timestamp_provenance": "operator_attested",
+        },
+        idempotency_key=f"data-activated:{batch.id}",
+        correlation_id=batch.campaign_id,
+    )
     append_audit(
         db,
         actor="operator",

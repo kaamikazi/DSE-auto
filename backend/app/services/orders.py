@@ -17,6 +17,7 @@ from app.risk.kill_switch import get_state
 from app.schemas.market import TimestampProvenance
 from app.schemas.trading import OrderProposalCreate, RiskDecision
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 
 def propose_order(
@@ -57,6 +58,15 @@ def propose_order(
         )
         db.add(order)
         db.flush()
+        emit_event(
+            db,
+            "risk_rejected",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            payload=decision.model_dump(mode="json"),
+            idempotency_key=f"risk-rejected:{order.id}:proposal",
+            correlation_id=order.id,
+        )
         append_audit(
             db,
             actor="system",
@@ -120,6 +130,20 @@ def propose_order(
     except IntegrityError as exc:
         db.rollback()
         raise ValueError("Duplicate order submission blocked") from exc
+    emit_event(
+        db,
+        "proposal_created" if decision.approved else "risk_rejected",
+        aggregate_type="order",
+        aggregate_id=order.id,
+        payload={
+            "status": order.status,
+            "symbol": order.symbol,
+            "quantity": order.quantity,
+            "risk": decision.model_dump(mode="json"),
+        },
+        idempotency_key=f"{'proposal-created' if decision.approved else 'risk-rejected'}:{order.id}",
+        correlation_id=order.id,
+    )
     append_audit(
         db,
         actor="system",
@@ -188,6 +212,15 @@ def approve_order(
             timestamp=datetime.now(UTC),
         )
         order.status = "risk_rejected"
+        emit_event(
+            db,
+            "risk_rejected",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            payload=decision.model_dump(mode="json"),
+            idempotency_key=f"risk-rejected:{order.id}:approval-provider",
+            correlation_id=order.id,
+        )
         append_audit(
             db,
             actor="user",
@@ -205,6 +238,15 @@ def approve_order(
         TimestampProvenance.OPERATOR_ATTESTED,
     }:
         order.status = "risk_rejected"
+        emit_event(
+            db,
+            "risk_rejected",
+            aggregate_type="order",
+            aggregate_id=order.id,
+            payload={"reason_codes": ["INSUFFICIENT_TIMESTAMP_TRUST"]},
+            idempotency_key=f"risk-rejected:{order.id}:timestamp",
+            correlation_id=order.id,
+        )
         append_audit(
             db,
             actor="user",
@@ -234,6 +276,15 @@ def approve_order(
         max_data_age_seconds=max_data_age_seconds,
     )
     order.status = "approved" if decision.approved else "risk_rejected"
+    emit_event(
+        db,
+        "proposal_approved" if decision.approved else "risk_rejected",
+        aggregate_type="order",
+        aggregate_id=order.id,
+        payload=decision.model_dump(mode="json"),
+        idempotency_key=f"{'proposal-approved' if decision.approved else 'risk-rejected'}:{order.id}:approval",
+        correlation_id=order.id,
+    )
     append_audit(
         db,
         actor="user",

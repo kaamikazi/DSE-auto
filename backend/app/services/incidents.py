@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import OperationalIncident
 from app.notifications.telegram import send_telegram_alert
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 INCIDENT_TYPES = {
     "provider_outage",
@@ -49,6 +50,15 @@ def open_incident(
     )
     db.add(incident)
     db.flush()
+    outbox = emit_event(
+        db,
+        "incident_opened",
+        aggregate_type="operational_incident",
+        aggregate_id=incident.id,
+        payload={"type": incident_type, "severity": severity, "campaign_id": campaign_id},
+        idempotency_key=f"incident-opened:{incident.id}",
+        correlation_id=campaign_id,
+    )
     audit = append_audit(
         db,
         actor="operations",
@@ -58,6 +68,7 @@ def open_incident(
         new_state={"type": incident_type, "severity": severity, "campaign_id": campaign_id},
     )
     incident.linked_audit_events = [audit.id]
+    outbox.audit_event_id = audit.id
     db.commit()
     if severity == "critical":
         send_telegram_alert(f"CRITICAL PAPER-OPS INCIDENT: {incident_type} ({incident.id})")

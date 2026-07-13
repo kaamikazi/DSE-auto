@@ -29,6 +29,9 @@ CAPABILITIES = {
     ),
     "csv": ProviderCapabilities(True, True, True, False, False, False, False, False, False, True),
     "mock": ProviderCapabilities(True, True, True, True, True, True, True, True, True, True),
+    "fake_certified": ProviderCapabilities(
+        True, True, True, True, True, True, True, True, True, True
+    ),
 }
 
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import Signal
 from app.schemas.market import HistoricalBar, Quote
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 
 def moving_average_signal(
@@ -48,6 +49,15 @@ def moving_average_signal(
     )
     db.add(signal)
     db.flush()
+    emit_event(
+        db,
+        "signal_generated",
+        aggregate_type="signal",
+        aggregate_id=signal.id,
+        payload={"type": signal_type, "symbol": symbol, "campaign_id": campaign_id},
+        idempotency_key=f"signal:{signal.id}",
+        correlation_id=campaign_id,
+    )
     append_audit(
         db,
         actor="signal_engine",

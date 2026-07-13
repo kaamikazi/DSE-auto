@@ -7,6 +7,7 @@ from app.data.providers.base import MarketDataProvider
 from app.data.providers.bdfinance_provider import BDFinanceProvider
 from app.data.providers.bdshare_provider import BDShareProvider
 from app.data.providers.csv_provider import CSVProvider, OperatorAttestedCSVProvider
+from app.data.providers.fake_certified import FakeCertifiedFeedAdapter
 from app.data.providers.mock import MockProvider
 
 
@@ -22,6 +23,7 @@ def create_provider(name: str, csv_root: Path) -> MarketDataProvider:
             settings.DSE_CUSTOM_CA_BUNDLE,
         ),
         "bdfinance": lambda: BDFinanceProvider(),
+        "fake_certified": lambda: FakeCertifiedFeedAdapter(),
     }
     name_lower = name.lower()
     if name_lower == "reliable":

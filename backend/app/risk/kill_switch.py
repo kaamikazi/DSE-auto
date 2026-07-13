@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
 from app.models import RiskState
 from app.services.audit import append_audit
+from app.services.events import emit_event
 
 VALID_STATES = {"healthy", "warning", "trading_paused", "reconciliation_required", "emergency_stop"}
 
@@ -23,6 +26,15 @@ def set_state(db: Session, state: str, reason: str, actor: str = "system") -> Ri
     record = get_state(db)
     previous = {"state": record.state, "reason": record.reason}
     record.state, record.reason = state, reason
+    if state == "emergency_stop":
+        emit_event(
+            db,
+            "emergency_stop",
+            aggregate_type="risk_state",
+            aggregate_id="1",
+            payload={"state": state, "reason": reason, "actor": actor},
+            idempotency_key=f"emergency-stop:{datetime.now(UTC).isoformat()}",
+        )
     append_audit(
         db,
         actor=actor,

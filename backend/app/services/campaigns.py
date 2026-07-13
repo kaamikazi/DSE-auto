@@ -14,6 +14,7 @@ from app.core.config import Settings
 from app.data.providers import create_provider
 from app.models import (
     CampaignDay,
+    DataQualityReport,
     FeeProfile,
     ImportBatch,
     JobExecution,
@@ -29,6 +30,7 @@ from app.models import (
 from app.services.audit import append_audit, audit_status, verify_audit_chain
 from app.services.backups import backup_database
 from app.services.campaign_analytics import campaign_metrics
+from app.services.events import emit_event
 from app.services.governance import strategy_by_reference
 from app.services.incidents import open_incident
 
@@ -374,6 +376,19 @@ def start_campaign_day(
     )
     db.add(day)
     db.flush()
+    emit_event(
+        db,
+        "campaign_session_started",
+        aggregate_type="campaign_day",
+        aggregate_id=str(day.id),
+        payload={
+            "campaign_id": campaign.id,
+            "session_id": session.id,
+            "market_date": market_date.isoformat(),
+        },
+        idempotency_key=f"campaign-session-started:{day.id}",
+        correlation_id=campaign.id,
+    )
     append_audit(
         db,
         actor="daily_workflow",
@@ -511,6 +526,21 @@ def complete_campaign_day(
     day.eod_completed = True
     day.state = "completed"
     day.completed_at = now
+    emit_event(
+        db,
+        "campaign_session_completed",
+        aggregate_type="campaign_day",
+        aggregate_id=str(day.id),
+        payload={
+            "campaign_id": campaign.id,
+            "session_id": day.session_id,
+            "evidence_path": str(evidence),
+            "backup_hash": backup["sha256"],
+        },
+        idempotency_key=f"campaign-session-completed:{day.id}",
+        correlation_id=campaign.id,
+        causation_id=f"campaign-session-started:{day.id}",
+    )
     append_audit(
         db,
         actor="daily_workflow",
@@ -520,6 +550,9 @@ def complete_campaign_day(
         new_state={"evidence_path": str(evidence), "backup_hash": backup["sha256"]},
     )
     db.commit()
+    from app.services.evidence_review import queue_campaign_day_review
+
+    queue_campaign_day_review(db, day)
     return summary
 
 
@@ -702,12 +735,27 @@ def campaign_summary(db: Session, campaign: ValidationCampaign) -> dict[str, Any
         .select_from(OperationalIncident)
         .where(OperationalIncident.campaign_id == campaign.id)
     )
+    quality_report = db.scalar(
+        select(DataQualityReport)
+        .where(DataQualityReport.campaign_id == campaign.id)
+        .order_by(DataQualityReport.created_at.desc())
+        .limit(1)
+    )
     return {
         "campaign": campaign_view(campaign),
         "daily": daily,
         "weekly": weekly,
         "cumulative": metrics,
         "incident_count": int(incidents or 0),
+        "data_quality_evidence": {
+            "report_id": quality_report.id,
+            "integrity_hash": quality_report.integrity_hash,
+            "passed": quality_report.passed,
+            "json_path": quality_report.json_path,
+        }
+        if quality_report
+        else None,
+        "strategy_results_visible": bool(quality_report and quality_report.passed),
         "profitability_claimed": False,
     }
 
