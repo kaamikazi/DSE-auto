@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 SECRET_PATTERNS = (
-    re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?([A-Za-z0-9_./+\-=]{24,})"),
+    re.compile(
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?([A-Za-z0-9_./+\-=]{24,})"
+    ),
     re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
 EXCLUDED_SUFFIXES = {".db", ".png", ".jpg", ".ico", ".woff", ".lock"}
@@ -18,7 +20,10 @@ EXCLUDED_SUFFIXES = {".db", ".png", ".jpg", ".ico", ".woff", ".lock"}
 
 def tracked_files(root: Path) -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=root, check=True, capture_output=True
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
     )
     return [root / item.decode() for item in result.stdout.split(b"\0") if item]
 
@@ -39,8 +44,12 @@ def scan_secrets(root: Path) -> list[dict[str, Any]]:
                 match = pattern.search(line)
                 if match is None:
                     continue
-                captured = match.group(2) if match.lastindex and match.lastindex >= 2 else ""
-                if captured.lower().startswith(("settings.", "os.environ", "get_settings")):
+                captured = (
+                    match.group(2) if match.lastindex and match.lastindex >= 2 else ""
+                )
+                if captured.lower().startswith(
+                    ("settings.", "os.environ", "get_settings")
+                ):
                     continue
                 findings.append({"file": str(path.relative_to(root)), "line": number})
                 break
@@ -50,7 +59,12 @@ def scan_secrets(root: Path) -> list[dict[str, Any]]:
 def configuration_permissions(root: Path) -> dict[str, Any]:
     env_path = root / ".env"
     if not env_path.exists():
-        return {"path": ".env", "exists": False, "secure": True, "reason": "not present"}
+        return {
+            "path": ".env",
+            "exists": False,
+            "secure": True,
+            "reason": "not present",
+        }
     mode = stat.S_IMODE(env_path.stat().st_mode)
     if os.name == "nt":
         return {
@@ -64,8 +78,12 @@ def configuration_permissions(root: Path) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Local secret and configuration preflight")
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser = argparse.ArgumentParser(
+        description="Local secret and configuration preflight"
+    )
+    parser.add_argument(
+        "--root", type=Path, default=Path(__file__).resolve().parents[1]
+    )
     args = parser.parse_args()
     report = {
         "secret_findings": scan_secrets(args.root),

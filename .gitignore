@@ -20,6 +20,12 @@ data/backups/*
 reports/campaigns/
 reports/disaster_recovery/
 reports/distributed_simulation/
+reports/infrastructure/
+reports/dependencies/
+reports/recovery/
+reports/incidents/
+logs/
+data/process-state/
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 !data/backups/.gitkeep
