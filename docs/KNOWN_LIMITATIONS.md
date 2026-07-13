@@ -18,3 +18,11 @@
 - **Legacy Audit Evidence**: The historical branch is archived and preserved; only the new canonical generation is operationally valid.
 - **Public DSE Providers**: bdshare remains blocked by TLS/DNS failures, and no bdfinance distribution was available from the configured package index.
 - **Attestation Scope**: Operator-attested CSV validates workflow reliability, not live-market latency or provider accuracy.
+- **Rule and Fee Verification**: Milestone 6 defaults remain assumptions until checked against current official and broker documents.
+- **Attestation Truth**: Hashing proves file immutability, not that a human-attested source is correct.
+- **Campaign Valuation**: Current summaries emphasize account cash snapshots; robust mark-to-market needs sustained trustworthy DSE history.
+- **Accelerated Campaign**: Twenty simulated sessions exercise workflows and recovery branches, not strategy profitability.
+- **Local Persistence**: SQLite and in-process APScheduler are not multi-host, high-availability infrastructure.
+- **Alert Independence**: Telegram plus console fallback is not independent notification redundancy.
+- **Local Metrics**: Metrics endpoints assume localhost isolation and do not replace authenticated monitoring.
+- **Editable Environment**: The existing `.venv` has stale editable-install metadata for another workspace. Verification pins `PYTHONPATH` to this repository; recreate `.venv` before routine operation.

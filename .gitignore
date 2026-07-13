@@ -17,6 +17,7 @@ htmlcov/
 data/cache/*
 data/reports/*
 data/backups/*
+reports/campaigns/
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 !data/backups/.gitkeep

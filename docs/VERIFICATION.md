@@ -88,3 +88,16 @@ Run pytest, Ruff, strict mypy, Alembic upgrade/downgrade/re-upgrade, frontend Ty
 - Frontend: TypeScript, ESLint, production build, and npm audit passed with zero vulnerabilities.
 - Alembic: `0004` downgrade/re-upgrade passed on an isolated clone, preserving the operational canonical chain.
 - Final canonical state: 12 valid canonical events plus 398 immutable archived legacy events; paper-account reconciliation remained healthy.
+
+## Milestone 6 verification — 2026-07-13
+
+- Backend: 83 tests passed, including multi-day lifecycle, single-controller protection, missed trading days, missed EOD, restart recovery, attestation/timestamp/duplicate imports, rule locks, fees, strategy promotion/suspension, analytics, incidents, scheduler lag, backup/audit failure, archive, and the 20-day simulation.
+- Python quality: Ruff format check and lint passed across 92 files; strict mypy passed across 65 backend/operator sources.
+- Alembic: the historical dynamic-`0001` defect was replaced by a static initial snapshot. Clean `0001` through `0007`, downgrade, and re-upgrade passed; operational database is at `0007`.
+- Frontend: TypeScript, ESLint, Next.js production build, and npm audit passed; audit reported zero vulnerabilities.
+- Corrected accelerated campaign: `dcfc5099-ea55-4561-930e-d17297e2e970`, 20 sessions, GP/ACI/BRACBANK, two governed strategies, provider outage, stale data, partial fill, rejection, two missed-EOD recoveries, restart recovery, and drawdown intervention.
+- Campaign outcome: completed; reconciliation healthy; audit valid; 1 rejected trade, 1 partial fill, 2 data-quality incidents, maximum drawdown `-9.1385%`. No profitability claim was made.
+- Evidence: JSON/HTML report generated under `reports/campaigns` for the corrected campaign. The earlier campaign remains preserved as an auditable verification iteration after its cumulative-count defect was found.
+- Backup/restore: `dse_autotrader_backup_20260713_110058.db`, 892,928 bytes, SHA-256 `75CA6444E4E6B259677FD00981E17FBC8AE77C475412B2449E4917D92A41B65B`; isolated restore hash matched and passed Alembic `0007`, audit, and reconciliation checks.
+- Final safety settings: `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `BROKER_ADAPTER=disabled`.
+- Provider reality is unchanged: public sources are not a sustained exchange-timestamped feed. Operator-attested data remains explicitly non-exchange-verified.

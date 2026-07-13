@@ -18,3 +18,16 @@ All items require written sign-off:
 - Written acceptance of financial and operational risk
 
 Milestone 1 cannot be enabled for live trading even if these boxes are checked; code and configuration changes plus a formal release are required.
+
+## Milestone 6 blockers
+
+- [ ] Several weeks of uninterrupted independently reviewed paper campaigns
+- [ ] Current authoritative verification for every active DSE rule
+- [ ] Binding broker/account fee and tax verification
+- [ ] Contractually reliable exchange-timestamped quotes
+- [ ] Resolution and independent review of critical/high incidents
+- [ ] Repeated restore, missed-EOD, restart, audit, and reconciliation drills
+- [ ] Robust out-of-sample strategy evidence without short-campaign profitability claims
+- [ ] Production-grade database, distributed scheduling, independent alerts, monitoring, secrets, and disaster recovery
+
+Milestone 6 does not enable broker execution. `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain mandatory.

@@ -61,3 +61,16 @@ Persistent job records, overlap prevention, bounded retry/backoff, stale-worker 
 ## Milestone 3 paper validation
 
 Named persistent paper sessions, an auditable Bangladesh calendar, conservative DSE execution rules, reversible imports, opt-in real-provider diagnostics and evidence packs support continuous paper validation. Start with `scripts\paper-operator.ps1`. Real broker execution remains unavailable.
+
+## Milestone 6 sustained campaigns
+
+Persistent multi-day campaigns, missed-session/EOD recovery, operator-attested quote/OHLCV/DSEX imports, immutable rule and fee versions, strategy governance, incidents, campaign analytics, and local operational metrics support several-week paper evidence collection.
+
+Run the deterministic 20-session verification from `backend` with this repository pinned:
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path
+.\.venv\Scripts\python.exe ..\scripts\operator.py simulate-campaign
+```
+
+See [CAMPAIGN_OPERATIONS.md](docs/CAMPAIGN_OPERATIONS.md), [DAILY_OPERATIONS.md](docs/DAILY_OPERATIONS.md), and [DATA_IMPORT_ATTESTATION.md](docs/DATA_IMPORT_ATTESTATION.md). Results are paper evidence, not proof of profitability.
