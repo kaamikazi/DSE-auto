@@ -16,7 +16,7 @@ from app.backtesting import run_backtest
 from app.brokers import PaperBroker
 from app.core.config import Settings, get_settings
 from app.core.database import get_db
-from app.core.security import require_api_key
+from app.core.security import require_api_key, require_reviewer
 from app.data.providers import DataProviderError, create_provider
 from app.models import (
     AuditEvent,
@@ -35,6 +35,7 @@ from app.schemas.sessions import PaperSessionCreate
 from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
 from app.services.audit import append_audit, audit_status, verify_audit_chain
 from app.services.backups import backup_database
+from app.services.data_quality import inline_quality_evidence
 from app.services.data_validation import compare_quotes
 from app.services.orders import approve_order, propose_order
 from app.services.paper_sessions import create_session, summary, transition_session
@@ -283,6 +284,14 @@ def backtest(
         bars = provider.get_history(payload.symbol, start, end)
         benchmark = provider.get_index_history("DSEX", start, end)
         report = cast(dict[str, object], asdict(run_backtest(bars, payload, benchmark)))
+        quality_evidence = inline_quality_evidence(bars)
+        report["data_quality_evidence"] = quality_evidence
+        report["strategy_results_visible"] = bool(quality_evidence["passed"])
+        if not quality_evidence["passed"]:
+            report["metrics"] = {}
+            report["trades"] = []
+            report["equity_curve"] = []
+            report["result_withheld_reason"] = "Inline data-quality evidence did not pass"
         rule_set = db.scalar(
             select(MarketRuleSet)
             .where(MarketRuleSet.verification_status != "deprecated")
@@ -488,7 +497,7 @@ def resume(db: Db) -> dict[str, object]:
     return {"state": state.state, "reason": state.reason, "reconciliation": broker_status}
 
 
-@router.get("/audit")
+@router.get("/audit", dependencies=[Depends(require_reviewer)])
 def audit_events(db: Db) -> dict[str, object]:
     events = db.scalars(select(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(200)).all()
     return {

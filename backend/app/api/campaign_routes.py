@@ -91,7 +91,13 @@ def list_campaigns(db: Db) -> list[dict[str, Any]]:
 
 @router.get("/campaigns/{campaign_id}/summary")
 def get_campaign_summary(campaign_id: str, db: Db) -> dict[str, Any]:
-    return campaign_summary(db, _campaign(db, campaign_id))
+    result = campaign_summary(db, _campaign(db, campaign_id))
+    if not result["strategy_results_visible"]:
+        result = result | {
+            "cumulative": None,
+            "result_withheld_reason": "Linked passing data-quality evidence is required",
+        }
+    return result
 
 
 @router.post("/campaigns/{campaign_id}/state/{action}", dependencies=[Depends(require_api_key)])

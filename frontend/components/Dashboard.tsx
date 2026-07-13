@@ -77,6 +77,28 @@ interface DataImport {
   timestamp_provenance: string;
 }
 
+interface InfrastructureSummary {
+  paper_trading: boolean;
+  live_trading_enabled: boolean;
+  database: { healthy: boolean; dialect: string; replication_ready: boolean };
+  redis: { healthy: boolean; backend: string; depth?: number; error?: string };
+  workers: { id: string; state: string; queues: string[]; heartbeat_at: string }[];
+  scheduler: { id: string; state: string; heartbeat_at: string }[];
+  task_queue: Record<string, number>;
+  event_outbox: Record<string, number>;
+  dead_letter_events: number;
+  data_latency: Record<string, unknown> | null;
+  daily_review_queue: Record<string, number>;
+  qualification: {
+    qualifying: boolean;
+    remaining_qualifying_days: number;
+    counts: Record<string, number>;
+    failure_reasons: string[];
+  } | null;
+  disaster_recovery: { status: string; rpo_seconds: number; rto_seconds: number } | null;
+  postgresql_migration: { status?: string; at_head?: boolean; current_revision?: string | null; expected_revision?: string | null } | null;
+}
+
 const importAttestation = "I confirm this file represents the stated market date and source.";
 
 const money = (value: string | number | null | undefined) =>
@@ -91,6 +113,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [readiness, setReadiness] = useState<ReadinessGate | null>(null);
   const [operations, setOperations] = useState<OperationsSummary | null>(null);
   const [imports, setImports] = useState<DataImport[]>([]);
+  const [infrastructure, setInfrastructure] = useState<InfrastructureSummary | null>(null);
   const [operatorKey, setOperatorKey] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importKind, setImportKind] = useState("quote");
@@ -102,14 +125,15 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
           fetch(`${API_URL}/paper-sessions`),
           fetch(`${API_URL}/paper-readiness?symbol=GP`),
           fetch(`${API_URL}/operations/summary`),
-          fetch(`${API_URL}/data-imports`)
+          fetch(`${API_URL}/data-imports`),
+          fetch(`${API_URL}/infrastructure/summary`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
@@ -118,6 +142,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
         if (readinessRes.ok) setReadiness(await readinessRes.json());
         if (operationsRes.ok) setOperations(await operationsRes.json());
         if (importsRes.ok) setImports(await importsRes.json());
+        if (infrastructureRes.ok) setInfrastructure(await infrastructureRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -195,7 +220,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const runReadOnlyCheck = async (label: string, path: string) => {
     setMessage(`Running ${label}...`);
     try {
-      const response = await fetch(`${API_URL}${path}`);
+      const response = await fetch(`${API_URL}${path}`, operatorKey ? { headers: { "X-API-Key": operatorKey } } : undefined);
       const data = await response.json();
       setMessage(response.ok ? `${label}: ${data.chain_valid ?? data.application ?? "completed"}` : `${label} failed`);
     } catch (err) {
@@ -218,6 +243,11 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
     ["Scheduler Status", schedHealth?.healthy ? "RUNNING" : "DEGRADED", "Persistent background jobs"],
     ["Audit chain", health.audit_chain_valid ? "VERIFIED" : "CHECK REQUIRED", "SHA-256 integrity hash"]
   ];
+
+  const stateCounts = (counts: Record<string, number> | undefined) =>
+    counts && Object.keys(counts).length
+      ? Object.entries(counts).map(([state, count]) => `${state}: ${count}`).join(" · ")
+      : "No records";
 
   return (
     <main className="p-5 md:p-8 space-y-6">
@@ -255,6 +285,29 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
             <p className="mt-2 text-xs text-slate-500">{note}</p>
           </article>
         ))}
+      </section>
+
+      <section className="rounded-xl border border-line bg-panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div><h2 className="font-semibold text-lg">Production-Like Paper Infrastructure</h2><p className="text-xs text-slate-500">Durable state, human review, recovery evidence, and migration readiness</p></div>
+          <span className={`rounded px-2 py-1 text-xs font-mono ${infrastructure?.database.healthy && infrastructure?.redis.healthy ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>
+            {infrastructure?.database.healthy && infrastructure?.redis.healthy ? "CORE HEALTHY" : "CHECK INFRASTRUCTURE"}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ["Workers", infrastructure?.workers.length ? infrastructure.workers.map(item => `${item.id}: ${item.state}`).join(" · ") : "No worker heartbeat", `DB ${infrastructure?.database.dialect ?? "unknown"}`],
+            ["Scheduler", infrastructure?.scheduler.length ? infrastructure.scheduler.map(item => item.state).join(" · ") : "No external heartbeat", "In-process mode is development only"],
+            ["Task Queue", stateCounts(infrastructure?.task_queue), `${infrastructure?.redis.backend ?? "unknown"} · depth ${infrastructure?.redis.depth ?? 0}`],
+            ["Event Outbox", stateCounts(infrastructure?.event_outbox), "At-least-once delivery · idempotent effects"],
+            ["Dead-Letter Events", String(infrastructure?.dead_letter_events ?? 0), "Operator replay requires authentication"],
+            ["Data Latency", infrastructure?.data_latency ? `${String(infrastructure.data_latency.quote_age_seconds_max ?? "n/a")}s max quote age` : "No quality report", "Daily · weekly · campaign evidence"],
+            ["Daily Review Queue", stateCounts(infrastructure?.daily_review_queue), "Reviewer/operator credentials required"],
+            ["60-Day Qualification", infrastructure?.qualification ? `${infrastructure.qualification.remaining_qualifying_days} qualifying days remaining` : "Not calculated", infrastructure?.qualification?.qualifying ? "QUALIFIED" : "FAIL CLOSED"],
+            ["Disaster Recovery", infrastructure?.disaster_recovery?.status?.toUpperCase() ?? "NOT RUN", infrastructure?.disaster_recovery ? `RPO ${infrastructure.disaster_recovery.rpo_seconds.toFixed(2)}s · RTO ${infrastructure.disaster_recovery.rto_seconds.toFixed(2)}s` : "Isolated restore evidence required"],
+            ["PostgreSQL Migration", infrastructure?.postgresql_migration?.status ?? (infrastructure?.postgresql_migration?.at_head ? "AT HEAD" : "PREFLIGHT REQUIRED"), `${infrastructure?.postgresql_migration?.current_revision ?? "none"} → ${infrastructure?.postgresql_migration?.expected_revision ?? "unknown"}`]
+          ].map(([title, value, note]) => <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">{title}</p><p className="mt-2 break-words text-xs font-semibold text-cyan">{value}</p><p className="mt-1 text-[10px] text-slate-500">{note}</p></article>)}
+        </div>
       </section>
 
       <section className="rounded-xl border border-line bg-panel p-5">
