@@ -31,3 +31,19 @@ Milestone 1 cannot be enabled for live trading even if these boxes are checked; 
 - [ ] Production-grade database, distributed scheduling, independent alerts, monitoring, secrets, and disaster recovery
 
 Milestone 6 does not enable broker execution. `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain mandatory.
+
+## Milestone 7 blockers
+
+- [ ] Start and verify PostgreSQL 16 and Redis 7 with the Docker integration suite
+- [ ] Complete hash-matched operational SQLite-to-PostgreSQL migration and rollback rehearsal
+- [ ] Pass PostgreSQL and Redis restart phases in the distributed 30-day harness
+- [ ] Restore a PostgreSQL backup on a clean machine and independently review measured RPO/RTO
+- [ ] Obtain a licensed, contractually reliable DSE feed with trustworthy exchange timestamps
+- [ ] Complete at least 60 real representative paper days, each with accepted independent review
+- [ ] Resolve every rejected/rerun day and every critical incident; do not count them silently
+- [ ] Independently validate risk thresholds, DSE rules, fees, taxes, liquidity and execution assumptions
+- [ ] Add a hashed Python production lock and Python dependency advisory scanning
+- [ ] Establish independent monitoring/alerting, secret management, encrypted backups and access review
+- [ ] Obtain official broker API documentation, permission, legal/compliance review and a separately designed live release
+
+Milestone 7 remains production-like paper infrastructure only. No checklist completion can activate the current disabled broker adapter.

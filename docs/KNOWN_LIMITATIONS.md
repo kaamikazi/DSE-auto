@@ -26,3 +26,16 @@
 - **Alert Independence**: Telegram plus console fallback is not independent notification redundancy.
 - **Local Metrics**: Metrics endpoints assume localhost isolation and do not replace authenticated monitoring.
 - **Editable Environment**: The existing `.venv` has stale editable-install metadata for another workspace. Verification pins `PYTHONPATH` to this repository; recreate `.venv` before routine operation.
+
+## Milestone 7 limitations
+
+- **Distributed runtime unverified**: Docker Compose syntax passes, but the Docker Desktop Linux daemon was unavailable. PostgreSQL migrations, Redis worker delivery, service restarts, PostgreSQL backup/restore, and the Docker 30-day harness were not executed.
+- **Emulation is not qualification**: The 30-day SQLite/in-memory run validated workflow logic only. It produced 29 qualifying days and leaves 31; none are claimed as real-market qualification days.
+- **No trustworthy live DSE feed**: bdshare still fails verified TLS/DNS and lacks exchange timestamps. No published bdfinance distribution exists on the configured index. The fake certified adapter is test-only.
+- **No PostgreSQL replica/failover**: Health metadata is implemented, but no replica, failover manager, or measured failover has been deployed.
+- **Outbox boundary**: Delivery is at-least-once. Idempotent consumers can make their database effect once; the overall distributed system is not exactly once.
+- **Python lock/advisories**: Dependencies have bounded major-version ranges, not a fully hashed production lock, and no Python vulnerability scanner is integrated.
+- **Local authentication**: Role separation, expiring sessions, throttling, and restricted audit access are local controls; there is no enterprise identity provider or hardware-backed key storage.
+- **Notification independence**: Telegram/console fallback does not meet independent out-of-band alerting requirements.
+- **Data-quality thresholds**: Default thresholds exercise fail-closed logic but require calibration and independent approval against a licensed real feed and actual DSE sessions.
+- **Backup encryption**: ACL restriction is automated; encrypted secret/database storage depends on an external approved encryption/key-management process.

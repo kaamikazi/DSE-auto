@@ -101,3 +101,39 @@ Run pytest, Ruff, strict mypy, Alembic upgrade/downgrade/re-upgrade, frontend Ty
 - Backup/restore: `dse_autotrader_backup_20260713_110058.db`, 892,928 bytes, SHA-256 `75CA6444E4E6B259677FD00981E17FBC8AE77C475412B2449E4917D92A41B65B`; isolated restore hash matched and passed Alembic `0007`, audit, and reconciliation checks.
 - Final safety settings: `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `BROKER_ADAPTER=disabled`.
 - Provider reality is unchanged: public sources are not a sustained exchange-timestamped feed. Operator-attested data remains explicitly non-exchange-verified.
+
+## Milestone 7 verification — 2026-07-13
+
+Verdict: **PASS for local paper-infrastructure logic; DISTRIBUTED/REAL-MARKET GATES BLOCKED**.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Backend tests | PASS | 98 passed, 2 external integration tests skipped |
+| Ruff format/lint | PASS | 101 files formatted; independent lint rerun passed |
+| Strict mypy | PASS | 82 backend source files |
+| Alembic | PASS (SQLite) | Clean `0001`→`0008`, downgrade to `0007`, re-upgrade to `0008`; operational DB at `0008` |
+| PostgreSQL integration | BLOCKED | Docker Desktop Linux engine pipe absent; services could not start |
+| Redis/worker integration | BLOCKED | Same Docker daemon blocker; Redis round-trip test skipped |
+| Frontend | PASS | TypeScript, ESLint, Next.js production build |
+| npm audit | PASS | 0 vulnerabilities |
+| Security preflight | PASS | No tracked literal secrets; localhost default; `.env` ACL restricted |
+| SQLite→PostgreSQL dry run | PASS (source preflight) | 33 operational tables enumerated with per-table counts/hashes; real destination unavailable |
+| Migration copy verification | PASS (isolated test) | Source/destination record counts and logical hashes matched |
+| SQLite backup/restore | PASS | Post-upgrade backup SHA-256 `B8DD95C6A6531E2365A8A327F60176996BD8458A5B1BAEA9FC2A831D073C777F`, `quick_check=ok`, revision `0008` |
+| Disaster recovery | PASS (SQLite) | 33 tables restored; audit valid; RPO ~0.007s; RTO ~0.138s; secrets excluded |
+| Audit verification | PASS | Canonical chain valid with 136 events; 398 legacy events remain preserved in hash-addressed archive |
+| Provider diagnostics | BLOCKED | bdshare verified TLS/DNS failures; bdfinance runtime unavailable; no TLS bypass |
+
+### Accelerated 30-day result
+
+Campaign `125cf9b5-ff67-42c6-8d7a-850277fbbcfc` used SQLite plus the in-memory broker and is labeled `local_emulation`, not distributed verification. GP, ACI and BRACBANK exercised two strategies. All 30 durable simulation tasks succeeded; duplicate task/event delivery, worker checkpoint, database client reconnect, one rejected review day, critical-incident resolution, final reconciliation, and final review logic were exercised.
+
+Thirty days completed and were reviewed. Twenty-nine qualified; one was rejected; 31 qualifying days remain against the 60-day target. Reconciliation was healthy. No profitability claim was made. The report is `reports/distributed_simulation/m7-local-emulation-30-day_phase_1_30.json`.
+
+### Provider and distributed blockers
+
+Compose configuration validates, but `docker version` cannot connect to `dockerDesktopLinuxEngine`. Therefore no claim is made for PostgreSQL schema execution, Redis delivery, actual worker/scheduler/database/Redis restart, PostgreSQL backup/restore, replication readiness, or distributed 30-day completion. `bdshare` failed certificate-chain validation on the primary endpoint and DNS resolution on the secondary. PyPI reported no matching `bdfinance` distribution.
+
+### Final safety state
+
+`TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain mandatory. Live order execution, browser automation, OTP/CAPTCHA handling, unofficial broker access, AI approval, automatic promotion, and TLS verification bypass remain absent.

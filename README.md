@@ -1,6 +1,6 @@
 # DSE AutoTrader
 
-A Windows-first DSE research, portfolio monitoring, backtesting and supervised **paper-trading** platform. Milestone 1 cannot submit real-money orders. The only executable broker is the local paper broker; `OfficialBrokerAdapter` always refuses calls.
+A Windows-first DSE research, portfolio monitoring, backtesting and supervised **paper-trading** platform. Milestone 7 cannot submit real-money orders. The only executable broker is the local paper broker; `OfficialBrokerAdapter` always refuses calls.
 
 ## Included
 
@@ -15,6 +15,10 @@ A Windows-first DSE research, portfolio monitoring, backtesting and supervised *
 - Telegram notifier with console fallback
 - Dark Next.js dashboard with permanent safety banners
 - Alembic, Docker Compose, PowerShell setup and offline test fixtures
+- PostgreSQL-ready pooled/retry-safe persistence plus non-destructive SQLite migration tooling
+- Redis-backed external scheduler/worker processes with leases, heartbeats, recovery and dead letters
+- Durable versioned outbox events with replay and idempotent consumer-effect records
+- Vendor-neutral data-adapter SDK, quality evidence, human daily reviews and a 60-day tracker
 
 ## Windows quick start
 
@@ -25,7 +29,7 @@ Copy-Item .env.example .env
 .\scripts\start.ps1
 ```
 
-Open `http://localhost:3000` and API docs at `http://localhost:8000/api/docs`. Change `API_SECRET_KEY`; mutating endpoints require it in `X-API-Key`.
+Open `http://localhost:3000` and API docs at `http://localhost:8000/api/docs`. Change both `API_SECRET_KEY` and `REVIEWER_API_SECRET_KEY`; operator mutations require the former, while protected evidence reads/reviews accept the appropriate role.
 
 Manual start:
 
@@ -52,7 +56,7 @@ npm.cmd run build
 
 `TRADING_MODE=paper` and `LIVE_TRADING_ENABLED=false` are validated at process startup. Any live setting causes configuration failure. Market orders are rejected. Stale/unsafe data, provider conflicts, non-healthy kill switch, excessive exposure, duplicate identifiers and reconciliation failures fail closed.
 
-See [ARCHITECTURE.md](docs/ARCHITECTURE.md), [WINDOWS_SETUP.md](docs/WINDOWS_SETUP.md), [PAPER_TRADING_GUIDE.md](docs/PAPER_TRADING_GUIDE.md), and [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+See [POSTGRESQL_OPERATIONS.md](docs/POSTGRESQL_OPERATIONS.md), [WORKER_ARCHITECTURE.md](docs/WORKER_ARCHITECTURE.md), [EVENT_BUS.md](docs/EVENT_BUS.md), [PAPER_TRADING_GUIDE.md](docs/PAPER_TRADING_GUIDE.md), and [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
 
 ## Milestone 2 operations
 
@@ -74,3 +78,9 @@ $env:PYTHONPATH = (Get-Location).Path
 ```
 
 See [CAMPAIGN_OPERATIONS.md](docs/CAMPAIGN_OPERATIONS.md), [DAILY_OPERATIONS.md](docs/DAILY_OPERATIONS.md), and [DATA_IMPORT_ATTESTATION.md](docs/DATA_IMPORT_ATTESTATION.md). Results are paper evidence, not proof of profitability.
+
+## Milestone 7 production-like paper infrastructure
+
+Production-like mode requires PostgreSQL, Redis, one external scheduler, and one or more workers. SQLite and in-process scheduling remain development/test modes. Daily evidence must pass data-quality gates and human review before it counts toward the 60-day qualification target.
+
+The completed local 30-day exercise is explicitly an emulation: 29 days qualified after one injected rejected review, leaving 31. Docker Desktop was unavailable, so PostgreSQL/Redis integration and actual service-restart verification remain blocked. See [VERIFICATION.md](docs/VERIFICATION.md), [DAILY_EVIDENCE_REVIEW.md](docs/DAILY_EVIDENCE_REVIEW.md), and [PAPER_QUALIFICATION_TRACKER.md](docs/PAPER_QUALIFICATION_TRACKER.md).
