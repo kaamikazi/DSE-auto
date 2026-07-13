@@ -20,8 +20,10 @@ from app.core.security import require_api_key
 from app.data.providers import DataProviderError, create_provider
 from app.models import (
     AuditEvent,
+    FeeProfile,
     ImportBatch,
     JobExecution,
+    MarketRuleSet,
     Order,
     PaperSession,
     Signal,
@@ -31,7 +33,7 @@ from app.risk import RiskEngine
 from app.risk.kill_switch import get_state, set_state
 from app.schemas.sessions import PaperSessionCreate
 from app.schemas.trading import BacktestRequest, OrderProposalCreate, TransactionCreate
-from app.services.audit import audit_status, verify_audit_chain
+from app.services.audit import append_audit, audit_status, verify_audit_chain
 from app.services.backups import backup_database
 from app.services.data_validation import compare_quotes
 from app.services.orders import approve_order, propose_order
@@ -272,7 +274,7 @@ def portfolio(db: Db, settings: Settings = Depends(get_settings)) -> dict[str, o
 
 @router.post("/backtests")
 def backtest(
-    payload: BacktestRequest, settings: Settings = Depends(get_settings)
+    payload: BacktestRequest, db: Db, settings: Settings = Depends(get_settings)
 ) -> dict[str, object]:
     provider = create_provider(settings.DATA_PRIMARY_PROVIDER, settings.CSV_DATA_DIR)
     end = date.today()
@@ -280,7 +282,40 @@ def backtest(
     try:
         bars = provider.get_history(payload.symbol, start, end)
         benchmark = provider.get_index_history("DSEX", start, end)
-        return cast(dict[str, object], asdict(run_backtest(bars, payload, benchmark)))
+        report = cast(dict[str, object], asdict(run_backtest(bars, payload, benchmark)))
+        rule_set = db.scalar(
+            select(MarketRuleSet)
+            .where(MarketRuleSet.verification_status != "deprecated")
+            .order_by(MarketRuleSet.effective_date.desc())
+            .limit(1)
+        )
+        fee_profile = db.scalar(
+            select(FeeProfile).order_by(FeeProfile.effective_date.desc()).limit(1)
+        )
+        report["market_rule_set"] = (
+            {"id": rule_set.id, "version": rule_set.version, "hash": rule_set.integrity_hash}
+            if rule_set
+            else {"id": None, "version": "unconfigured"}
+        )
+        report["fee_profile"] = (
+            {"id": fee_profile.id, "name": fee_profile.name, "version": fee_profile.version}
+            if fee_profile
+            else {"id": None, "version": "unconfigured"}
+        )
+        append_audit(
+            db,
+            actor="researcher",
+            event_type="backtest.completed",
+            entity_type="backtest",
+            entity_id=payload.symbol,
+            metadata={
+                "strategy": payload.strategy,
+                "market_rule_set_id": rule_set.id if rule_set else None,
+                "fee_profile_id": fee_profile.id if fee_profile else None,
+            },
+        )
+        db.commit()
+        return report
     except (DataProviderError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
 

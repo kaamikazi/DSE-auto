@@ -41,6 +41,44 @@ interface ReadinessGate {
   checks: Record<string, { passed: boolean; state?: string; provenance?: string }>;
 }
 
+interface OperationsSummary {
+  current_campaign: {
+    id: string;
+    name: string;
+    state: string;
+    approved_strategies: string[];
+  } | null;
+  current_session: { day_id: number; date: string; state: string } | null;
+  market_state: string;
+  data_provenance: string;
+  timestamp_trust: string;
+  rule_set_version: string | null;
+  rule_set_status: string | null;
+  fee_profile: string | null;
+  strategy_versions: string[];
+  drawdown: number | null;
+  backup_status: { successful?: boolean; sha256?: string } | null;
+  audit: { canonical_valid?: boolean };
+  unresolved_incidents: { id: string; type: string; severity: string; state: string }[];
+  observability: {
+    database_healthy: boolean;
+    scheduler_lag_seconds: number | null;
+    queue_depth: number;
+    failure_count: number;
+  };
+}
+
+interface DataImport {
+  id: string;
+  source_name: string;
+  status: string;
+  import_kind: string;
+  market_date: string | null;
+  timestamp_provenance: string;
+}
+
+const importAttestation = "I confirm this file represents the stated market date and source.";
+
 const money = (value: string | number | null | undefined) =>
   value == null ? "৳0" : `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
 
@@ -51,23 +89,35 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [message, setMessage] = useState<string | null>(null);
   const [sessions, setSessions] = useState<PaperSession[]>([]);
   const [readiness, setReadiness] = useState<ReadinessGate | null>(null);
+  const [operations, setOperations] = useState<OperationsSummary | null>(null);
+  const [imports, setImports] = useState<DataImport[]>([]);
+  const [operatorKey, setOperatorKey] = useState("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importKind, setImportKind] = useState("quote");
+  const [importDate, setImportDate] = useState("");
+  const [attested, setAttested] = useState(false);
+  const [previewBatch, setPreviewBatch] = useState<string | null>(null);
 
   // Polling data every 3 seconds for real-time status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes, readinessRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
           fetch(`${API_URL}/paper-sessions`),
-          fetch(`${API_URL}/paper-readiness?symbol=GP`)
+          fetch(`${API_URL}/paper-readiness?symbol=GP`),
+          fetch(`${API_URL}/operations/summary`),
+          fetch(`${API_URL}/data-imports`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
         if (sRes.ok) setSchedHealth(await sRes.json());
         if (sessionRes.ok) setSessions(await sessionRes.json());
         if (readinessRes.ok) setReadiness(await readinessRes.json());
+        if (operationsRes.ok) setOperations(await operationsRes.json());
+        if (importsRes.ok) setImports(await importsRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -79,13 +129,17 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   }, []);
 
   const runRiskAction = async (action: "emergency-stop" | "pause" | "resume") => {
+    if (!operatorKey) {
+      setMessage("Enter the operator API key for authenticated actions. It is not stored.");
+      return;
+    }
     setMessage(`Executing ${action}...`);
     try {
       const response = await fetch(`${API_URL}/risk/${action}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-API-Key": process.env.NEXT_PUBLIC_API_KEY ?? "test-secret-key-at-least-32-characters"
+          "X-API-Key": operatorKey
         }
       });
       if (response.ok) {
@@ -99,6 +153,43 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
       setMessage(`Failed: ${err}`);
     }
     setTimeout(() => setMessage(null), 5000);
+  };
+
+  const previewDataImport = async () => {
+    if (!operatorKey || !importFile || !importDate || !attested) {
+      setMessage("Operator key, file, date, and exact attestation are required.");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", importFile);
+    body.append("import_kind", importKind);
+    body.append("market_date", importDate);
+    body.append("operator_attestation", importAttestation);
+    if (operations?.current_campaign?.id) body.append("campaign_id", operations.current_campaign.id);
+    const response = await fetch(`${API_URL}/data-imports/preview`, {
+      method: "POST",
+      headers: { "X-API-Key": operatorKey },
+      body
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.activation_allowed) {
+      setPreviewBatch(data.batch_id);
+      setMessage(`Preview valid: ${data.valid_rows.length} rows, hash ${data.source_hash.slice(0, 12)}…`);
+    } else {
+      setMessage(`Import preview blocked: ${data.detail ?? data.errors?.[0]?.error ?? "validation failed"}`);
+    }
+  };
+
+  const activateDataImport = async () => {
+    if (!operatorKey || !previewBatch) return;
+    const approval = "Operator approves activation after reviewing preview";
+    const response = await fetch(`${API_URL}/data-imports/${previewBatch}/activate?approval=${encodeURIComponent(approval)}`, {
+      method: "POST",
+      headers: { "X-API-Key": operatorKey }
+    });
+    const data = await response.json().catch(() => ({}));
+    setMessage(response.ok ? `Import ${data.batch_id} activated as operator_attested` : `Activation blocked: ${data.detail}`);
+    if (response.ok) setPreviewBatch(null);
   };
 
   const runReadOnlyCheck = async (label: string, path: string) => {
@@ -190,6 +281,86 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
             <button onClick={() => runReadOnlyCheck("Verify audit", "/audit")} className="rounded border border-cyan/30 py-2 text-xs text-cyan">VERIFY AUDIT</button>
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <article className="rounded-xl border border-line bg-panel p-5 xl:col-span-2">
+          <div className="flex items-center justify-between">
+            <div><h2 className="font-semibold text-lg">Sustained Campaign Operations</h2><p className="text-xs text-slate-500">Campaign, daily session, rule, fee, strategy, and incident evidence</p></div>
+            <span className={`rounded px-2 py-1 text-xs font-mono ${operations?.current_campaign?.state === "active" ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500/20 text-amber-300"}`}>{operations?.current_campaign?.state?.toUpperCase() ?? "NO ACTIVE CAMPAIGN"}</span>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
+            {[
+              ["Current campaign", operations?.current_campaign?.name ?? "None"],
+              ["Market/session", operations?.current_session ? `${operations.current_session.date} · ${operations.current_session.state}` : operations?.market_state ?? "Unavailable"],
+              ["Data provenance", operations?.data_provenance ?? "unknown"],
+              ["Timestamp trust", operations?.timestamp_trust ?? "none"],
+              ["Market rules", operations?.rule_set_version ? `${operations.rule_set_version} · ${operations.rule_set_status}` : "Not selected"],
+              ["Fee profile", operations?.fee_profile ?? "Not selected"],
+              ["Audit health", operations?.audit?.canonical_valid ? "CANONICAL / VALID" : "BLOCKED"],
+              ["Open incidents", String(operations?.unresolved_incidents.length ?? 0)],
+              ["Campaign drawdown", operations?.drawdown == null ? "No evidence" : `${(operations.drawdown * 100).toFixed(2)}%`],
+              ["Latest backup", operations?.backup_status?.successful ? "VERIFIED" : "NOT RECORDED"]
+            ].map(([label, value]) => <div key={label} className="rounded-lg border border-line bg-[#0f192b] p-3"><p className="text-slate-500">{label}</p><p className="mt-1 font-mono text-slate-200 break-words">{value}</p></div>)}
+          </div>
+          <div className="mt-4 rounded-lg border border-line bg-[#0f192b] p-3 text-xs">
+            <p className="text-slate-500">Approved strategy versions</p>
+            <p className="mt-1 font-mono text-cyan">{operations?.strategy_versions.join(", ") || "No governed strategies active"}</p>
+          </div>
+          {operations?.unresolved_incidents.length ? <div className="mt-3 space-y-2">{operations.unresolved_incidents.slice(0, 4).map(incident => <div key={incident.id} className="rounded border border-red-500/20 bg-red-500/[.05] px-3 py-2 text-xs text-red-300">{incident.severity.toUpperCase()} · {incident.type} · {incident.state}</div>)}</div> : null}
+        </article>
+
+        <article className="rounded-xl border border-line bg-panel p-5">
+          <h2 className="font-semibold text-lg">Local Observability</h2>
+          <p className="text-xs text-slate-500">No secrets or portfolio details exposed</p>
+          <div className="mt-4 space-y-2 text-xs">
+            <div className="flex justify-between border-b border-line py-2"><span>Database</span><span className="font-mono">{operations?.observability.database_healthy ? "HEALTHY" : "FAILED"}</span></div>
+            <div className="flex justify-between border-b border-line py-2"><span>Scheduler lag</span><span className="font-mono">{operations?.observability.scheduler_lag_seconds == null ? "unknown" : `${Math.round(operations.observability.scheduler_lag_seconds)}s`}</span></div>
+            <div className="flex justify-between border-b border-line py-2"><span>Order queue</span><span className="font-mono">{operations?.observability.queue_depth ?? 0}</span></div>
+            <div className="flex justify-between border-b border-line py-2"><span>Job failures</span><span className="font-mono">{operations?.observability.failure_count ?? 0}</span></div>
+          </div>
+        </article>
+      </section>
+
+      <section className="rounded-xl border border-line bg-panel p-5">
+        <h2 className="font-semibold text-lg">Governance & Evidence Panels</h2>
+        <p className="text-xs text-slate-500">Read-only operational surfaces; mutations require an authenticated operator action</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            ["Market Rules", operations?.rule_set_version ?? "No active version", operations?.rule_set_status ?? "unavailable"],
+            ["Fee Profiles", operations?.fee_profile ?? "No active profile", "Conservative unknown-cost defaults"],
+            ["Strategy Governance", `${operations?.strategy_versions.length ?? 0} active versions`, "Manual promotion · automatic suspension"],
+            ["Incidents", `${operations?.unresolved_incidents.length ?? 0} unresolved`, "Audit-linked lifecycle and critical alerts"],
+            ["Daily Reports", operations?.current_session?.date ?? "No report date", "Snapshot · reconciliation · evidence"],
+            ["Weekly Reports", operations?.current_campaign?.name ?? "No campaign", "Five-session evidence windows"],
+            ["Data Imports", `${imports.length} recorded batches`, "Preview · hash · attestation · rollback"],
+            ["Daily Operations", operations?.market_state ?? "unavailable", "Pre-market · market · EOD · recovery"]
+          ].map(([title, value, note]) => <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-4"><p className="text-xs uppercase tracking-wider text-slate-500">{title}</p><p className="mt-2 text-sm font-semibold text-cyan">{value}</p><p className="mt-1 text-[11px] text-slate-500">{note}</p></article>)}
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="rounded-xl border border-line bg-panel p-5">
+          <h2 className="font-semibold text-lg">Approved Daily Data Import</h2>
+          <p className="text-xs text-slate-500">Preview → operator approval → activation; raw file retained immutably</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <input aria-label="Operator API key" type="password" value={operatorKey} onChange={event => setOperatorKey(event.target.value)} placeholder="Operator API key (never stored)" className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
+            <select value={importKind} onChange={event => setImportKind(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs"><option value="quote">Quote CSV</option><option value="ohlcv">OHLCV CSV</option><option value="dsex">DSEX CSV</option></select>
+            <input aria-label="Market date" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
+            <input aria-label="CSV file" type="file" accept=".csv,text/csv" onChange={event => setImportFile(event.target.files?.[0] ?? null)} className="rounded border border-dashed border-cyan/30 bg-[#0f192b] px-3 py-2 text-xs" />
+          </div>
+          <label className="mt-3 flex gap-2 text-xs text-slate-300"><input type="checkbox" checked={attested} onChange={event => setAttested(event.target.checked)} /><span>{importAttestation}</span></label>
+          <div className="mt-3 grid grid-cols-2 gap-2"><button onClick={previewDataImport} className="rounded border border-cyan/30 py-2 text-xs text-cyan">PREVIEW & HASH</button><button disabled={!previewBatch} onClick={activateDataImport} className="rounded border border-emerald-500/30 py-2 text-xs text-emerald-300 disabled:opacity-30">APPROVE ACTIVATION</button></div>
+          <div className="mt-3 flex gap-3 text-[11px] text-cyan"><a href={`${API_URL}/data-imports/templates/quote`}>Quote template</a><a href={`${API_URL}/data-imports/templates/ohlcv`}>OHLCV template</a><a href={`${API_URL}/data-imports/templates/dsex`}>DSEX template</a></div>
+        </article>
+
+        <article className="rounded-xl border border-line bg-panel p-5">
+          <h2 className="font-semibold text-lg">Import Batches</h2>
+          <p className="text-xs text-slate-500">Imported timestamps remain operator_attested, never exchange_verified</p>
+          <div className="mt-4 max-h-56 space-y-2 overflow-y-auto">
+            {imports.length ? imports.slice(0, 8).map(item => <div key={item.id} className="rounded border border-line bg-[#0f192b] p-3 text-xs"><div className="flex justify-between"><span className="font-semibold text-cyan">{item.source_name}</span><span className="font-mono">{item.status}</span></div><p className="mt-1 text-slate-500">{item.import_kind} · {item.market_date ?? "date unavailable"} · {item.timestamp_provenance}</p></div>) : <p className="text-xs text-slate-500">No attested daily imports recorded.</p>}
+          </div>
+        </article>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
