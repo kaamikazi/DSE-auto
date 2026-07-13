@@ -50,7 +50,9 @@ def main() -> None:
     verify.add_argument("--provider", required=True)
     verify.add_argument("--symbol", default="GP")
     action = sub.add_parser("session")
-    action.add_argument("action", choices=["status", "start", "pause", "resume", "stop"])
+    action.add_argument(
+        "action", choices=["status", "start", "pause", "resume", "stop"]
+    )
     action.add_argument("name")
     sub.add_parser("verify-audit")
     sub.add_parser("audit-status")
@@ -89,7 +91,9 @@ def main() -> None:
     simulation.add_argument("--backup-dir", default="../data/backups")
     preview_data = sub.add_parser("import-preview")
     preview_data.add_argument("file")
-    preview_data.add_argument("--kind", required=True, choices=["quote", "ohlcv", "dsex"])
+    preview_data.add_argument(
+        "--kind", required=True, choices=["quote", "ohlcv", "dsex"]
+    )
     preview_data.add_argument("--market-date", required=True)
     preview_data.add_argument("--attestation", required=True)
     preview_data.add_argument("--campaign-id")
@@ -99,7 +103,16 @@ def main() -> None:
     rollback_data = sub.add_parser("import-rollback")
     rollback_data.add_argument("batch_id")
     rollback_data.add_argument("--reason", required=True)
+    infrastructure = sub.add_parser("infrastructure")
+    infrastructure.add_argument("action", choices=["doctor"])
+    infrastructure.add_argument("--output-dir", default="../reports/infrastructure")
     args = parser.parse_args()
+    if args.command == "infrastructure":
+        from app.services.infrastructure_doctor import run_infrastructure_doctor
+
+        report = run_infrastructure_doctor(Path(args.output_dir))
+        print(json.dumps(report, indent=2, default=str))
+        raise SystemExit(0 if report["ready"] else 2)
     if args.command == "verify-data":
         provider = create_provider(args.provider, Path("./data/imports"))
         print(
@@ -137,7 +150,9 @@ def main() -> None:
             provider = create_provider(args.provider, settings.CSV_DATA_DIR)
             print(
                 json.dumps(
-                    evaluate_readiness(db, settings, provider, args.symbol, args.acknowledgement),
+                    evaluate_readiness(
+                        db, settings, provider, args.symbol, args.acknowledgement
+                    ),
                     indent=2,
                     default=str,
                 )
@@ -161,7 +176,9 @@ def main() -> None:
             print(json.dumps(PaperBroker(db).reconcile(), indent=2))
             return
         if args.command == "emergency-stop":
-            state = set_state(db, "emergency_stop", "CLI emergency stop", "operator_cli")
+            state = set_state(
+                db, "emergency_stop", "CLI emergency stop", "operator_cli"
+            )
             print(json.dumps({"state": state.state, "reason": state.reason}))
             return
         if args.command == "simulate-campaign":
@@ -183,7 +200,11 @@ def main() -> None:
             if validation_campaign is None:
                 raise SystemExit("Campaign not found")
             if args.action == "status":
-                print(json.dumps(campaign_summary(db, validation_campaign), indent=2, default=str))
+                print(
+                    json.dumps(
+                        campaign_summary(db, validation_campaign), indent=2, default=str
+                    )
+                )
                 return
             if args.action == "archive":
                 archive_campaign(db, validation_campaign, args.reason)
@@ -202,7 +223,11 @@ def main() -> None:
                     args.reason,
                     "operator_cli",
                 )
-            print(json.dumps(campaign_summary(db, validation_campaign), indent=2, default=str))
+            print(
+                json.dumps(
+                    campaign_summary(db, validation_campaign), indent=2, default=str
+                )
+            )
             return
         if args.command == "campaign-day":
             validation_campaign = db.get(ValidationCampaign, args.campaign_id)
@@ -275,7 +300,9 @@ def main() -> None:
             "stop": "stopped",
         }
         if args.action != "status":
-            transition_session(db, session, targets[args.action], f"cli_{args.action}", "cli")
+            transition_session(
+                db, session, targets[args.action], f"cli_{args.action}", "cli"
+            )
         print(json.dumps(summary(session), indent=2))
 
 

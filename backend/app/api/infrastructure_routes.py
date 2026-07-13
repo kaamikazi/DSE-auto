@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -21,6 +21,7 @@ from app.models import (
     DataQualityReport,
     DisasterRecoveryRun,
     EvidenceReview,
+    OperationalIncident,
     OutboxEvent,
     PaperQualification,
     RiskValidationRun,
@@ -72,6 +73,7 @@ def create_auth_session(
 
 @router.get("/summary")
 def infrastructure_summary(db: Db) -> dict[str, Any]:
+    now = datetime.now(UTC)
     workers = list(
         db.scalars(select(WorkerHeartbeat).order_by(WorkerHeartbeat.heartbeat_at.desc()))
     )
@@ -87,17 +89,54 @@ def infrastructure_summary(db: Db) -> dict[str, Any]:
     latest_migration = db.scalar(
         select(DatabaseMigrationRun).order_by(DatabaseMigrationRun.started_at.desc()).limit(1)
     )
+    broker_health = create_broker().health()
+    backup_files = list(Path("../data/backups").glob("*.db"))
+    latest_backup = (
+        max(backup_files, key=lambda item: item.stat().st_mtime) if backup_files else None
+    )
+    backup_age_seconds = (
+        max(now.timestamp() - latest_backup.stat().st_mtime, 0) if latest_backup else None
+    )
+
+    def heartbeat_age(value: datetime) -> float:
+        normalized = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return max((now - normalized.astimezone(UTC)).total_seconds(), 0)
+
+    active_leases = int(
+        db.scalar(select(func.count()).select_from(TaskRecord).where(TaskRecord.state == "leased"))
+        or 0
+    )
+    retries = int(
+        db.scalar(select(func.count()).select_from(TaskRecord).where(TaskRecord.state == "retry"))
+        or 0
+    )
+    task_dead_letters = int(
+        db.scalar(
+            select(func.count()).select_from(TaskRecord).where(TaskRecord.state == "dead_letter")
+        )
+        or 0
+    )
+    incidents = list(
+        db.scalars(
+            select(OperationalIncident)
+            .where(OperationalIncident.state.in_(["open", "acknowledged", "mitigated"]))
+            .order_by(OperationalIncident.opened_at.desc())
+            .limit(25)
+        )
+    )
     return {
         "paper_trading": True,
         "live_trading_enabled": False,
         "database": database_health_metadata(db),
-        "redis": create_broker().health(),
+        "api": {"healthy": True, "checked_at": now.isoformat()},
+        "redis": broker_health,
         "workers": [
             {
                 "id": item.worker_id,
                 "state": item.state,
                 "queues": item.queues,
                 "heartbeat_at": item.heartbeat_at.isoformat(),
+                "heartbeat_age_seconds": heartbeat_age(item.heartbeat_at),
             }
             for item in workers
             if not item.worker_id.startswith("scheduler:")
@@ -107,12 +146,17 @@ def infrastructure_summary(db: Db) -> dict[str, Any]:
                 "id": item.worker_id,
                 "state": item.state,
                 "heartbeat_at": item.heartbeat_at.isoformat(),
+                "heartbeat_age_seconds": heartbeat_age(item.heartbeat_at),
             }
             for item in workers
             if item.worker_id.startswith("scheduler:")
         ],
         "task_queue": _counts(db, TaskRecord, TaskRecord.state),
         "event_outbox": _counts(db, OutboxEvent, OutboxEvent.state),
+        "queue_depth": int(broker_health.get("depth", 0) or 0),
+        "active_leases": active_leases,
+        "retries": retries,
+        "task_dead_letters": task_dead_letters,
         "dead_letter_events": int(
             db.scalar(
                 select(func.count())
@@ -144,6 +188,28 @@ def infrastructure_summary(db: Db) -> dict[str, Any]:
         }
         if latest_migration
         else migration_preflight(engine),
+        "database_pool_health": database_health_metadata(db).get("pool"),
+        "backup": {
+            "path": str(latest_backup) if latest_backup else None,
+            "age_seconds": backup_age_seconds,
+            "within_24_hours": backup_age_seconds is not None and backup_age_seconds <= 86400,
+        },
+        "recovery_readiness": bool(
+            latest_recovery
+            and latest_recovery.status == "passed"
+            and backup_age_seconds is not None
+            and backup_age_seconds <= 86400
+        ),
+        "infrastructure_incidents": [
+            {
+                "id": item.id,
+                "type": item.incident_type,
+                "severity": item.severity,
+                "state": item.state,
+                "opened_at": item.opened_at.isoformat(),
+            }
+            for item in incidents
+        ],
     }
 
 

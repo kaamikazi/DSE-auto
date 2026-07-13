@@ -80,13 +80,22 @@ interface DataImport {
 interface InfrastructureSummary {
   paper_trading: boolean;
   live_trading_enabled: boolean;
+  api: { healthy: boolean; checked_at: string };
   database: { healthy: boolean; dialect: string; replication_ready: boolean };
   redis: { healthy: boolean; backend: string; depth?: number; error?: string };
-  workers: { id: string; state: string; queues: string[]; heartbeat_at: string }[];
-  scheduler: { id: string; state: string; heartbeat_at: string }[];
+  workers: { id: string; state: string; queues: string[]; heartbeat_at: string; heartbeat_age_seconds: number }[];
+  scheduler: { id: string; state: string; heartbeat_at: string; heartbeat_age_seconds: number }[];
   task_queue: Record<string, number>;
   event_outbox: Record<string, number>;
   dead_letter_events: number;
+  queue_depth: number;
+  active_leases: number;
+  retries: number;
+  task_dead_letters: number;
+  database_pool_health: string | null;
+  backup: { path: string | null; age_seconds: number | null; within_24_hours: boolean };
+  recovery_readiness: boolean;
+  infrastructure_incidents: { id: string; type: string; severity: string; state: string; opened_at: string }[];
   data_latency: Record<string, unknown> | null;
   daily_review_queue: Record<string, number>;
   qualification: {
@@ -302,11 +311,17 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {[
+            ["API", infrastructure?.api.healthy ? "HEALTHY" : "UNAVAILABLE", "Independent API process health"],
             ["Workers", infrastructure?.workers.length ? infrastructure.workers.map(item => `${item.id}: ${item.state}`).join(" · ") : "No worker heartbeat", `DB ${infrastructure?.database.dialect ?? "unknown"}`],
             ["Scheduler", infrastructure?.scheduler.length ? infrastructure.scheduler.map(item => item.state).join(" · ") : "No external heartbeat", "In-process mode is development only"],
             ["Task Queue", stateCounts(infrastructure?.task_queue), `${infrastructure?.redis.backend ?? "unknown"} · depth ${infrastructure?.redis.depth ?? 0}`],
             ["Event Outbox", stateCounts(infrastructure?.event_outbox), "At-least-once delivery · idempotent effects"],
             ["Dead-Letter Events", String(infrastructure?.dead_letter_events ?? 0), "Operator replay requires authentication"],
+            ["Leases / Retries", `${infrastructure?.active_leases ?? 0} / ${infrastructure?.retries ?? 0}`, `Task dead letters ${infrastructure?.task_dead_letters ?? 0}`],
+            ["Database Pool", infrastructure?.database_pool_health ?? "UNAVAILABLE", "Pre-ping and bounded recovery enabled"],
+            ["Backup", infrastructure?.backup.within_24_hours ? "CURRENT" : "STALE / MISSING", infrastructure?.backup.age_seconds == null ? "No backup evidence" : `${(infrastructure.backup.age_seconds / 3600).toFixed(1)}h old`],
+            ["Recovery", infrastructure?.recovery_readiness ? "READY" : "BLOCKED", "Passing isolated restore and current backup required"],
+            ["Infrastructure Incidents", String(infrastructure?.infrastructure_incidents.length ?? 0), "Unresolved incidents require review"],
             ["Data Latency", infrastructure?.data_latency ? `${String(infrastructure.data_latency.quote_age_seconds_max ?? "n/a")}s max quote age` : "No quality report", "Daily · weekly · campaign evidence"],
             ["Daily Review Queue", stateCounts(infrastructure?.daily_review_queue), "Reviewer/operator credentials required"],
             ["60-Day Qualification", infrastructure?.qualification ? `${infrastructure.qualification.remaining_qualifying_days} qualifying days remaining` : "Not calculated", infrastructure?.qualification?.qualifying ? "QUALIFIED" : "FAIL CLOSED"],
