@@ -4,7 +4,7 @@ import hashlib
 import json
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -67,7 +67,15 @@ def append_audit(
             )
             sequence, chain_id = None, None
             previous_hash = prior.integrity_hash if prior else ZERO_HASH
+        timestamp = datetime.now(UTC)
+        if prior is not None:
+            prior_timestamp = prior.timestamp
+            if prior_timestamp.tzinfo is None:
+                prior_timestamp = prior_timestamp.replace(tzinfo=UTC)
+            if timestamp <= prior_timestamp:
+                timestamp = prior_timestamp + timedelta(microseconds=1)
         event = AuditEvent(
+            timestamp=timestamp,
             actor=actor,
             event_type=event_type,
             entity_type=entity_type,

@@ -23,6 +23,21 @@ INCIDENT_TYPES = {
     "database_failure",
     "notification_failure",
     "unexpected_process_restart",
+    "postgresql_unavailable",
+    "redis_unavailable",
+    "worker_failure",
+    "scheduler_failure",
+    "api_restart",
+    "database_restart",
+    "redis_restart",
+    "database_pool_exhaustion",
+    "disk_write_failure",
+    "dead_letter_accumulation",
+    "stale_lease",
+    "corrupt_task_payload",
+    "database_migration_mismatch",
+    "provider_certification_failure",
+    "invalid_recovery_manifest",
 }
 INCIDENT_STATES = {"open", "acknowledged", "mitigated", "resolved", "accepted_risk"}
 
