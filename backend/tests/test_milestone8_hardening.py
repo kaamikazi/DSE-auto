@@ -60,6 +60,11 @@ def test_infrastructure_doctor_reports_machine_and_human_results(
             return 0, "Client: Docker\nServer: Docker Engine"
         if joined == "docker compose version":
             return 0, "Docker Compose version v5"
+        if joined == "docker compose ps --format json db db_test redis":
+            return 0, "\n".join(
+                json.dumps({"Service": service, "State": "running", "Health": "healthy"})
+                for service in ("db", "db_test", "redis")
+            )
         if joined == "wsl.exe --status":
             return 0, "Default Version: 2"
         if "Get-Service" in joined:
@@ -81,6 +86,53 @@ def test_infrastructure_doctor_reports_machine_and_human_results(
     assert report["safety"]["configuration_changed"] is False
     assert Path(report["json_path"]).is_file()
     assert "READY" in Path(report["human_report_path"]).read_text(encoding="utf-8")
+
+
+def test_infrastructure_doctor_accepts_wsl2_engine_when_windows_service_is_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", lambda _: "C:/Program Files/Docker/docker.exe")
+
+    def runner(command: list[str] | tuple[str, ...]) -> tuple[int, str]:
+        joined = " ".join(command)
+        if joined == "docker version":
+            return 0, "Client: Docker\nServer: Docker Desktop\nOS/Arch: linux/amd64"
+        if joined == "docker compose version":
+            return 0, "Docker Compose version v5"
+        if joined == "docker compose ps --format json db db_test redis":
+            return 0, json.dumps(
+                [
+                    {"Service": service, "State": "running", "Health": "healthy"}
+                    for service in ("db", "db_test", "redis")
+                ]
+            )
+        if joined == "wsl.exe --status":
+            return 0, "Default Version: 2"
+        if "Get-Service" in joined:
+            return 0, "Stopped"
+        return 1, "unexpected"
+
+    report = run_infrastructure_doctor(
+        tmp_path,
+        runner=runner,
+        tcp_probe=lambda _, port: port in {5432, 6379},
+        resource_reader=lambda: {
+            "disk_free_gb": 100,
+            "memory_total_gb": 16,
+            "memory_free_gb": 8,
+            "virtualization_available": True,
+        },
+    )
+
+    service = next(check for check in report["checks"] if check["name"] == "docker_service_running")
+    containers = next(
+        check for check in report["checks"] if check["name"] == "required_containers_healthy"
+    )
+    assert report["ready"] is True
+    assert service["passed"] is False
+    assert service["required"] is False
+    assert containers["passed"] is True
+    assert "WARN" in Path(report["human_report_path"]).read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

@@ -13,6 +13,7 @@ from typing import Any
 CommandRunner = Callable[[Sequence[str]], tuple[int, str]]
 TcpProbe = Callable[[str, int], bool]
 ResourceReader = Callable[[], dict[str, Any]]
+REQUIRED_COMPOSE_SERVICES = ("db", "db_test", "redis")
 
 
 def _run(command: Sequence[str]) -> tuple[int, str]:
@@ -83,6 +84,34 @@ def _check(
     }
 
 
+def _compose_service_health(output: str) -> dict[str, dict[str, str]]:
+    """Normalize Docker Compose JSON-lines/array output by service name."""
+    records: list[Any] = []
+    try:
+        decoded = json.loads(output)
+        records.extend(decoded if isinstance(decoded, list) else [decoded])
+    except json.JSONDecodeError:
+        for line in output.splitlines():
+            if not line.strip():
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    services: dict[str, dict[str, str]] = {}
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        service = str(record.get("Service", ""))
+        if service:
+            services[service] = {
+                "state": str(record.get("State", "")).lower(),
+                "health": str(record.get("Health", "")).lower(),
+                "id": str(record.get("ID", "")),
+            }
+    return services
+
+
 def run_infrastructure_doctor(
     output_dir: Path,
     *,
@@ -93,6 +122,9 @@ def run_infrastructure_doctor(
     docker_path = shutil.which("docker")
     docker_code, docker_output = runner(["docker", "version"])
     compose_code, compose_output = runner(["docker", "compose", "version"])
+    compose_ps_code, compose_ps_output = runner(
+        ["docker", "compose", "ps", "--format", "json", *REQUIRED_COMPOSE_SERVICES]
+    )
     wsl_code, wsl_output = runner(["wsl.exe", "--status"])
     service_code, service_output = runner(
         [
@@ -106,6 +138,15 @@ def run_infrastructure_doctor(
     port_states = {str(port): tcp_probe("127.0.0.1", port) for port in (3000, 5432, 6379, 8000)}
     engine_available = docker_code == 0 and "server:" in docker_output.lower()
     service_running = service_code == 0 and "running" in service_output.lower()
+    compose_services = _compose_service_health(compose_ps_output)
+    required_containers_healthy = compose_ps_code == 0 and all(
+        compose_services.get(service, {}).get("state") == "running"
+        and compose_services.get(service, {}).get("health") == "healthy"
+        for service in REQUIRED_COMPOSE_SERVICES
+    )
+    docker_runtime_demonstrably_ready = (
+        engine_available and compose_code == 0 and required_containers_healthy
+    )
     wsl2_available = wsl_code == 0 and (
         "version: 2" in wsl_output.lower()
         or "version 2" in wsl_output.lower()
@@ -123,8 +164,12 @@ def run_infrastructure_doctor(
         _check(
             "docker_service_running",
             service_running,
-            service_output or "service not found",
+            {
+                "windows_service": service_output or "service not found",
+                "runtime_ready_without_service": docker_runtime_demonstrably_ready,
+            },
             "Open Docker Desktop as the operator and wait for the engine to report Running; do not change Windows services from automation.",
+            required=not docker_runtime_demonstrably_ready,
         ),
         _check(
             "linux_engine_available",
@@ -137,6 +182,16 @@ def run_infrastructure_doctor(
             compose_code == 0,
             compose_output,
             "Repair or upgrade the Docker Desktop Compose plugin until `docker compose version` succeeds.",
+        ),
+        _check(
+            "required_containers_healthy",
+            required_containers_healthy,
+            {
+                "compose_command_succeeded": compose_ps_code == 0,
+                "required_services": list(REQUIRED_COMPOSE_SERVICES),
+                "services": compose_services,
+            },
+            "Start the approved db, db_test, and redis Compose services and wait until all three Docker health checks report healthy.",
         ),
         _check(
             "wsl2_available",
@@ -215,9 +270,8 @@ def run_infrastructure_doctor(
     for item in checks:
         detail = json.dumps(item["detail"], default=str).replace("|", "\\|").replace("\n", " ")
         remediation = str(item["remediation"]).replace("|", "\\|")
-        rows.append(
-            f"| {item['name']} | {'PASS' if item['passed'] else 'FAIL'} | {detail} | {remediation} |"
-        )
+        result = "PASS" if item["passed"] else "FAIL" if item["required"] else "WARN"
+        rows.append(f"| {item['name']} | {result} | {detail} | {remediation} |")
     markdown_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
     report["json_path"] = str(json_path)
     report["human_report_path"] = str(markdown_path)
