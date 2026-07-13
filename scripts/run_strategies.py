@@ -1,7 +1,7 @@
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 import os
 import sys
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 # Ensure backend directory is in path so we can import app modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
@@ -14,14 +14,14 @@ from app.schemas.trading import BacktestRequest
 def generate_synthetic_data(days: int = 500) -> tuple[list[HistoricalBar], list[HistoricalBar]]:
     gp_bars = []
     dsex_bars = []
-    
+
     start_date = datetime(2023, 1, 1, tzinfo=UTC)
     gp_price = 200.0
     dsex_price = 6000.0
-    
+
     for i in range(days):
         ts = start_date + timedelta(days=i)
-        
+
         # Create deterministic price moves:
         # A cycle of 40 days:
         # - Day 0 to 20: slight uptrend (+0.5% per day)
@@ -37,10 +37,10 @@ def generate_synthetic_data(days: int = 500) -> tuple[list[HistoricalBar], list[
         else:
             gp_price *= 0.99
             volume = 8000
-            
+
         # Benchmark DSEX has a steady 0.1% uptrend
         dsex_price *= 1.001
-        
+
         gp_bars.append(
             HistoricalBar(
                 symbol="GP",
@@ -53,7 +53,7 @@ def generate_synthetic_data(days: int = 500) -> tuple[list[HistoricalBar], list[
                 source="synthetic",
             )
         )
-        
+
         dsex_bars.append(
             HistoricalBar(
                 symbol="DSEX",
@@ -66,25 +66,25 @@ def generate_synthetic_data(days: int = 500) -> tuple[list[HistoricalBar], list[
                 source="synthetic",
             )
         )
-        
+
     return gp_bars, dsex_bars
 
 
 def main() -> None:
     print("Generating synthetic market bars...")
     gp_bars, dsex_bars = generate_synthetic_data()
-    
+
     strategies = [
         ("buy_hold", {}),
         ("ma_crossover", {"fast": 20, "slow": 50}),
         ("momentum_dsex", {"lookback": 60}),
         ("volume_breakout", {"lookback": 20, "volume_multiplier": 1.5}),
     ]
-    
+
     os.makedirs("reports", exist_ok=True)
-    
+
     summary_rows = []
-    
+
     for strategy_name, params in strategies:
         print(f"Running strategy: {strategy_name}...")
         req = BacktestRequest(
@@ -96,19 +96,19 @@ def main() -> None:
             minimum_quantity=1,
             parameters=params,
         )
-        
+
         res = run_backtest(gp_bars, req, benchmark=dsex_bars)
-        
+
         # Save JSON
         json_path = f"reports/backtest_{strategy_name}.json"
         with open(json_path, "w") as f:
             f.write(res.to_json())
-            
+
         # Save HTML
         html_path = f"reports/backtest_{strategy_name}.html"
         with open(html_path, "w") as f:
             f.write(res.to_html())
-            
+
         m = res.metrics
         summary_rows.append(
             f"| {strategy_name:<16} "
@@ -120,11 +120,15 @@ def main() -> None:
             f"| {m['number_of_trades']:>10} |"
         )
         print(f"-> Saved reports to reports/backtest_{strategy_name}.[json/html]")
-        
+
     print("\nBacktest Executions Complete!")
     print("\nSummary Metrics Table:")
-    print("| Strategy         | Total Ret  | Sharpe     | Sortino    | Calmar     | Max DD     | Trades     |")
-    print("|------------------|------------|------------|------------|------------|------------|------------|")
+    print(
+        "| Strategy         | Total Ret  | Sharpe     | Sortino    | Calmar     | Max DD     | Trades     |"
+    )
+    print(
+        "|------------------|------------|------------|------------|------------|------------|------------|"
+    )
     for row in summary_rows:
         print(row)
 

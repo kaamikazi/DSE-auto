@@ -11,9 +11,16 @@ with SessionLocal() as db:
     if db.get(RiskState, 1) is None:
         db.add(RiskState(id=1, state="healthy", reason="Seeded paper environment"))
     if not db.query(Transaction).first():
-        db.add(Transaction(occurred_at=datetime.now(UTC), transaction_type="adjustment", symbol="GP",
-                           quantity=Decimal("0"), price=Decimal("0"), notes="Non-position demo seed",
-                           source_record={"seed": True}))
+        db.add(
+            Transaction(
+                occurred_at=datetime.now(UTC),
+                transaction_type="adjustment",
+                symbol="GP",
+                quantity=Decimal("0"),
+                price=Decimal("0"),
+                notes="Non-position demo seed",
+                source_record={"seed": True},
+            )
+        )
     db.commit()
 print("Seeded paper account and safe defaults; no investment positions created.")
-
