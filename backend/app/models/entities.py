@@ -42,6 +42,9 @@ class MarketBar(Base):
     source: Mapped[str] = mapped_column(String(32))
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     quality_status: Mapped[str] = mapped_column(String(32), default="valid")
+    timestamp_provenance: Mapped[str] = mapped_column(String(32), default="unknown")
+    import_batch_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
 
 class Transaction(Base):
@@ -59,6 +62,7 @@ class Transaction(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     source_record: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
 
 class RiskState(Base):
@@ -92,6 +96,7 @@ class Order(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
 
 class JobExecution(Base):
@@ -124,6 +129,7 @@ class Signal(Base):
     data_quality_status: Mapped[str] = mapped_column(String(32))
     risk_preview: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
 
 
 class AuditEvent(Base):
@@ -178,6 +184,9 @@ class PaperSession(Base):
     stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    market_rule_set_id: Mapped[str | None] = mapped_column(String(36))
+    fee_profile_id: Mapped[str | None] = mapped_column(String(36))
 
 
 class PaperSessionRun(Base):
@@ -203,3 +212,126 @@ class ImportBatch(Base):
     errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    import_kind: Mapped[str] = mapped_column(String(32), default="transactions")
+    market_date: Mapped[date | None] = mapped_column(Date)
+    operator_attestation: Mapped[str | None] = mapped_column(Text)
+    raw_file_path: Mapped[str | None] = mapped_column(Text)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+
+
+class ValidationCampaign(Base):
+    __tablename__ = "validation_campaigns"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    account_id: Mapped[int] = mapped_column(Integer, default=1, index=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    planned_end_date: Mapped[date] = mapped_column(Date)
+    approved_symbols: Mapped[list[str]] = mapped_column(JSON, default=list)
+    approved_strategies: Mapped[list[str]] = mapped_column(JSON, default=list)
+    starting_capital: Mapped[Decimal] = mapped_column(Numeric(24, 4))
+    risk_profile: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    data_source_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    timestamp_trust_requirement: Mapped[str] = mapped_column(String(32))
+    fill_model: Mapped[str] = mapped_column(String(16))
+    benchmark: Mapped[str] = mapped_column(String(32))
+    operator_notes: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(32), default="configured", index=True)
+    active_rule_set_id: Mapped[str] = mapped_column(String(36))
+    active_fee_profile_id: Mapped[str] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class CampaignDay(Base):
+    __tablename__ = "campaign_days"
+    __table_args__ = (UniqueConstraint("campaign_id", "market_date"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[str] = mapped_column(String(36), index=True)
+    market_date: Mapped[date] = mapped_column(Date, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36))
+    state: Mapped[str] = mapped_column(String(32), default="planned")
+    premarket_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    eod_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    missed_reason: Mapped[str | None] = mapped_column(Text)
+    summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    evidence_path: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class MarketRuleSet(Base):
+    __tablename__ = "market_rule_sets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    version: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    effective_date: Mapped[date] = mapped_column(Date)
+    source_reference: Mapped[str] = mapped_column(Text)
+    verification_status: Mapped[str] = mapped_column(String(32))
+    operator_approval: Mapped[str] = mapped_column(Text)
+    rules: Mapped[dict[str, Any]] = mapped_column(JSON)
+    change_history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    integrity_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class FeeProfile(Base):
+    __tablename__ = "fee_profiles"
+    __table_args__ = (UniqueConstraint("name", "version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(100), index=True)
+    version: Mapped[str] = mapped_column(String(32))
+    effective_date: Mapped[date] = mapped_column(Date)
+    broker: Mapped[str | None] = mapped_column(String(100))
+    account_label: Mapped[str | None] = mapped_column(String(100))
+    configuration: Mapped[dict[str, Any]] = mapped_column(JSON)
+    integrity_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StrategyRegistration(Base):
+    __tablename__ = "strategy_registrations"
+    __table_args__ = (UniqueConstraint("strategy_id", "version"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    strategy_id: Mapped[str] = mapped_column(String(100), index=True)
+    version: Mapped[str] = mapped_column(String(32))
+    lifecycle_state: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    code_hash: Mapped[str] = mapped_column(String(64))
+    parameters: Mapped[dict[str, Any]] = mapped_column(JSON)
+    data_requirements: Mapped[dict[str, Any]] = mapped_column(JSON)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    minimum_sample_size: Mapped[int] = mapped_column(Integer)
+    operator_approval: Mapped[str | None] = mapped_column(Text)
+    suspension_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OperationalIncident(Base):
+    __tablename__ = "operational_incidents"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    incident_type: Mapped[str] = mapped_column(String(64), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    severity: Mapped[str] = mapped_column(String(16))
+    owner: Mapped[str | None] = mapped_column(String(100))
+    root_cause: Mapped[str | None] = mapped_column(Text)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    remediation: Mapped[str | None] = mapped_column(Text)
+    linked_audit_events: Mapped[list[str]] = mapped_column(JSON, default=list)
+    opened_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OperationalMetric(Base):
+    __tablename__ = "operational_metrics"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    metric_name: Mapped[str] = mapped_column(String(100), index=True)
+    value: Mapped[float] = mapped_column(Float)
+    unit: Mapped[str] = mapped_column(String(32))
+    labels: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
