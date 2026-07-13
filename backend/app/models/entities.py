@@ -11,6 +11,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     Integer,
     Numeric,
     String,
@@ -333,5 +334,200 @@ class OperationalMetric(Base):
     unit: Mapped[str] = mapped_column(String(32))
     labels: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+
+
+class TaskRecord(Base):
+    __tablename__ = "task_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_name: Mapped[str] = mapped_column(String(100), index=True)
+    queue: Mapped[str] = mapped_column(String(100), default="dse-paper-tasks", index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    state: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    lease_owner: Mapped[str | None] = mapped_column(String(100), index=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    correlation_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class WorkerHeartbeat(Base):
+    __tablename__ = "worker_heartbeats"
+    worker_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    process_id: Mapped[int] = mapped_column(Integer)
+    state: Mapped[str] = mapped_column(String(32), default="starting", index=True)
+    queues: Mapped[list[str]] = mapped_column(JSON, default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    heartbeat_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    shutdown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class OutboxEvent(Base):
+    __tablename__ = "outbox_events"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    event_type: Mapped[str] = mapped_column(String(100), index=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    aggregate_type: Mapped[str] = mapped_column(String(100))
+    aggregate_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    correlation_id: Mapped[str] = mapped_column(String(100), index=True)
+    causation_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    audit_event_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
+    lease_owner: Mapped[str | None] = mapped_column(String(100))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EventDelivery(Base):
+    __tablename__ = "event_deliveries"
+    __table_args__ = (
+        UniqueConstraint("event_id", "consumer"),
+        UniqueConstraint("consumer", "effect_key"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[str] = mapped_column(ForeignKey("outbox_events.id"), index=True)
+    consumer: Mapped[str] = mapped_column(String(100))
+    effect_key: Mapped[str] = mapped_column(String(255))
+    result: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    delivered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DataQualityObservation(Base):
+    __tablename__ = "data_quality_observations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    market_date: Mapped[date] = mapped_column(Date, index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    provider: Mapped[str] = mapped_column(String(100), index=True)
+    timestamp_trust: Mapped[str] = mapped_column(String(32))
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DataQualityReport(Base):
+    __tablename__ = "data_quality_reports"
+    __table_args__ = (UniqueConstraint("scope", "campaign_id", "start_date", "end_date"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    scope: Mapped[str] = mapped_column(String(32), index=True)
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    json_path: Mapped[str] = mapped_column(Text)
+    csv_path: Mapped[str] = mapped_column(Text)
+    chart_path: Mapped[str] = mapped_column(Text)
+    integrity_hash: Mapped[str] = mapped_column(String(64), index=True)
+    passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EvidenceReview(Base):
+    __tablename__ = "evidence_reviews"
+    __table_args__ = (UniqueConstraint("campaign_day_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    campaign_day_id: Mapped[int] = mapped_column(ForeignKey("campaign_days.id"), index=True)
+    campaign_id: Mapped[str] = mapped_column(String(36), index=True)
+    session_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    state: Mapped[str] = mapped_column(String(32), default="pending_review", index=True)
+    reviewer: Mapped[str | None] = mapped_column(String(100))
+    reviewer_role: Mapped[str | None] = mapped_column(String(32))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evidence_pack_hash: Mapped[str] = mapped_column(String(64))
+    data_quality_verdict: Mapped[str | None] = mapped_column(String(32))
+    strategy_behavior_verdict: Mapped[str | None] = mapped_column(String(32))
+    risk_engine_verdict: Mapped[str | None] = mapped_column(String(32))
+    execution_model_verdict: Mapped[str | None] = mapped_column(String(32))
+    incidents_reviewed: Mapped[list[str]] = mapped_column(JSON, default=list)
+    comments: Mapped[str] = mapped_column(Text, default="")
+    approval_decision: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PaperQualification(Base):
+    __tablename__ = "paper_qualifications"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    campaign_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    target_days: Mapped[int] = mapped_column(Integer, default=60)
+    counts: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    qualifying: Mapped[bool] = mapped_column(Boolean, default=False)
+    failure_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    remaining_qualifying_days: Mapped[int] = mapped_column(Integer, default=60)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RiskValidationRun(Base):
+    __tablename__ = "risk_validation_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    campaign_id: Mapped[str | None] = mapped_column(String(36), index=True)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    integrity_hash: Mapped[str] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DisasterRecoveryRun(Base):
+    __tablename__ = "disaster_recovery_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    recovery_point_seconds: Mapped[float] = mapped_column(Float)
+    recovery_time_seconds: Mapped[float] = mapped_column(Float)
+    checks: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    evidence_path: Mapped[str] = mapped_column(Text)
+    integrity_hash: Mapped[str] = mapped_column(String(64), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class DatabaseMigrationRun(Base):
+    __tablename__ = "database_migration_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    source_url_redacted: Mapped[str] = mapped_column(Text)
+    destination_url_redacted: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    record_counts: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    table_hashes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    role: Mapped[str] = mapped_column(String(32), index=True)
+    actor: Mapped[str] = mapped_column(String(100))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String(64), index=True)
+    role: Mapped[str] = mapped_column(String(32))
+    succeeded: Mapped[bool] = mapped_column(Boolean, default=False)
+    attempted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )

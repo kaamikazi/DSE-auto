@@ -17,13 +17,15 @@ dependencies = [
   "httpx>=0.28,<1",
   "python-multipart>=0.0.20,<1",
   "apscheduler>=3.10,<4",
+  "psycopg[binary]>=3.2,<4",
+  "redis>=5.2,<6",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3,<9", "pytest-cov>=6,<7", "ruff>=0.8,<1", "mypy>=1.13,<2"]
 providers = ["bdshare>=1.2.1,<2"]
 reports = ["quantstats>=0.0.64"]
-postgres = ["psycopg[binary]>=3.2,<4"]
+postgres = []
 
 [tool.setuptools.packages.find]
 include = ["app*"]

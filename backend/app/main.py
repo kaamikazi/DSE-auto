@@ -17,6 +17,7 @@ from app.core.rate_limit import RateLimitMiddleware
 from app.models import PaperAccount, RiskState
 from app.notifications.telegram import start_bot_polling, stop_bot_polling
 from app.services.audit import append_audit
+from app.services.migration_preflight import require_migration_head
 from app.services.recovery import run_startup_recovery
 from app.services.scheduler import start_scheduler, stop_scheduler
 
@@ -27,7 +28,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    Base.metadata.create_all(engine)  # Development fallback; production uses Alembic.
+    if settings.APP_ENV == "production":
+        require_migration_head(engine)
+    else:
+        Base.metadata.create_all(engine)  # Local development/test fallback only.
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
             cash = Decimal(str(settings.PAPER_STARTING_CASH_BDT))
@@ -45,7 +49,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         )
         db.commit()
     logger.info("DSE AutoTrader started in PAPER mode; live execution is unavailable")
-    if settings.SCHEDULER_ENABLED:
+    if settings.SCHEDULER_ENABLED and settings.SCHEDULER_MODE == "in_process":
         start_scheduler()
     start_bot_polling()
     yield
