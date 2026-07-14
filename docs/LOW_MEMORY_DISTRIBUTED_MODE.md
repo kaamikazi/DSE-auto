@@ -18,4 +18,3 @@ The unchanged pre-start requirement remains 3 GiB available physical memory and 
 | Total project footprint | 0.967 GiB | 0.962 GiB | 0.927 GiB |
 
 B1 and B3 passed. B2 failed due real host paging and memory trend despite flat worker memory; it must not be treated as a capacity pass.
-

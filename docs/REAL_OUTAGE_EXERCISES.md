@@ -13,4 +13,3 @@ Status: **real serialized sub-stage verification**, not simultaneous all-process
 | Stale-lease recovery after abrupt worker loss | BLOCKED / NOT RUN | Multi-worker B2 did not qualify |
 
 Each executed exercise opened an operational incident before injection, created canonical audit events, recorded exact processes and before/during/after memory, reconciled the paper account, and revalidated the audit chain before resolution. Reports are local ignored artifacts under `reports/incidents/`.
-
