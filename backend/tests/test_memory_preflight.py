@@ -64,3 +64,18 @@ def test_stage_stop_preserves_primary_data_services_and_volumes() -> None:
     assert "docker volume" not in script
     assert "stop -t 30 db_test" in script
     assert "worker_2 worker scheduler backend" in script
+
+
+def test_low_memory_profile_is_isolated_and_serialized() -> None:
+    profile = (ROOT / "docker-compose.low-memory.yml").read_text(encoding="utf-8")
+    start = (ROOT / "scripts/start_low_memory_substage.ps1").read_text(encoding="utf-8")
+    assert "POSTGRES_VALIDATION_DATABASE" in profile
+    assert 'DATABASE_POOL_SIZE: "2"' in profile
+    assert 'DATABASE_MAX_OVERFLOW: "1"' in profile
+    assert "frontend" not in profile
+    assert "db_test" not in profile
+    assert start.index("memory_doctor.ps1") < start.index("up -d db redis")
+    assert "infrastructure_doctor.ps1" in start
+    assert start.index("infrastructure_doctor.ps1") < start.index("docker compose stop db_test")
+    assert "verify-audit" in start
+    assert "ValidateSet('B1','B2','B3')" in start

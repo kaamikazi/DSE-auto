@@ -48,6 +48,14 @@ def evaluate_runtime_observation(
     pagefile_used = [_number(item, "pagefile_used_gib") for item in ordered]
     pagefile_percent = [_number(item, "pagefile_used_percent") for item in ordered]
     hard_paging = [_number(item, "hard_paging_per_second") for item in ordered]
+    consecutive_severe = 0
+    maximum_consecutive_severe = 0
+    for value in hard_paging:
+        if value > MAXIMUM_PEAK_HARD_PAGING_PER_SECOND:
+            consecutive_severe += 1
+            maximum_consecutive_severe = max(maximum_consecutive_severe, consecutive_severe)
+        else:
+            consecutive_severe = 0
 
     elapsed_minutes = max(duration / 60.0, 1 / 60)
     available_drop = available[0] - available[-1]
@@ -79,7 +87,7 @@ def evaluate_runtime_observation(
         ),
         "paging_pressure": (
             fmean(hard_paging) <= MAXIMUM_AVERAGE_HARD_PAGING_PER_SECOND
-            and max(hard_paging) <= MAXIMUM_PEAK_HARD_PAGING_PER_SECOND
+            and maximum_consecutive_severe <= 1
         ),
         "container_restarts": restart_stable,
         "no_oom_kill": no_oom,
@@ -106,6 +114,10 @@ def evaluate_runtime_observation(
             "pagefile_growth_gib": round(pagefile_used[-1] - pagefile_used[0], 3),
             "hard_paging_average_per_second": round(fmean(hard_paging), 2),
             "hard_paging_peak_per_second": max(hard_paging),
+            "hard_paging_severe_samples": sum(
+                value > MAXIMUM_PEAK_HARD_PAGING_PER_SECOND for value in hard_paging
+            ),
+            "hard_paging_maximum_consecutive_severe_samples": maximum_consecutive_severe,
             "restart_deltas": restart_deltas,
         },
         "basis": (

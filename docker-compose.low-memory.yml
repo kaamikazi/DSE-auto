@@ -1,0 +1,14 @@
+services:
+  backend:
+    environment: &low_memory_environment
+      DATABASE_URL: postgresql+psycopg://dse:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_VALIDATION_DATABASE:?set POSTGRES_VALIDATION_DATABASE}
+      DATABASE_POOL_SIZE: "2"
+      DATABASE_MAX_OVERFLOW: "1"
+      DATABASE_POOL_TIMEOUT_SECONDS: "15"
+      WORKER_HEARTBEAT_SECONDS: "30"
+  scheduler:
+    environment: *low_memory_environment
+  worker:
+    environment: *low_memory_environment
+  worker_2:
+    environment: *low_memory_environment

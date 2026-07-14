@@ -76,3 +76,30 @@ def test_runtime_observation_blocks_database_or_audit_uncertainty() -> None:
     assert result["passed"] is False
     assert result["checks"]["database_health"] is False
     assert result["checks"]["audit_validity"] is False
+
+
+def test_runtime_observation_allows_one_transient_paging_spike() -> None:
+    observed = samples()
+    observed[1]["hard_paging_per_second"] = 80.0
+    result = evaluate_runtime_observation(
+        observed,
+        project_footprint_gib=0.4,
+        database_healthy=True,
+        audit_valid=True,
+    )
+    assert result["passed"] is True
+    assert result["metrics"]["hard_paging_severe_samples"] == 1
+
+
+def test_runtime_observation_blocks_sustained_paging_pressure() -> None:
+    observed = samples()
+    observed[8]["hard_paging_per_second"] = 80.0
+    observed[9]["hard_paging_per_second"] = 80.0
+    result = evaluate_runtime_observation(
+        observed,
+        project_footprint_gib=0.4,
+        database_healthy=True,
+        audit_valid=True,
+    )
+    assert result["passed"] is False
+    assert result["checks"]["paging_pressure"] is False

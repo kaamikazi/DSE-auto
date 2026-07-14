@@ -2,7 +2,7 @@ param(
   [Parameter(Mandatory=$true)]
   [string]$StageLabel,
   [Parameter(Mandatory=$true)]
-  [string[]]$Services,
+  [string]$Services,
   [ValidateRange(600, 3600)]
   [int]$DurationSeconds = 600,
   [ValidateRange(15, 120)]
@@ -16,6 +16,8 @@ New-Item -ItemType Directory -Force -Path $output | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $rawPath = Join-Path $output "runtime_${StageLabel}_raw_$stamp.json"
 $resultPath = Join-Path $output "runtime_${StageLabel}_result_$stamp.json"
+$expectedServices = @($Services.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($expectedServices.Count -eq 0) { throw 'At least one expected service is required' }
 
 function Convert-MemoryToGiB([string]$Value) {
   if ($Value -notmatch '^\s*([0-9.]+)\s*([KMG]iB)') { return 0.0 }
@@ -63,7 +65,7 @@ do {
   $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
   $pagefile = Get-CimInstance Win32_PerfFormattedData_PerfOS_PagingFile -Filter "Name='_Total'"
   $pagefileUsage = @(Get-CimInstance Win32_PageFileUsage)
-  $serviceSnapshots = @($Services | ForEach-Object { Get-ServiceSnapshot $_ })
+  $serviceSnapshots = @($expectedServices | ForEach-Object { Get-ServiceSnapshot $_ })
   $containerMemory = (($serviceSnapshots | Measure-Object memory_gib -Sum).Sum)
   $vmmem = Get-Process -Name vmmemWSL,vmmem -ErrorAction SilentlyContinue
   $vmmemGiB = [math]::Round((($vmmem | Measure-Object WorkingSet64 -Sum).Sum) / 1GB, 4)
@@ -88,20 +90,22 @@ do {
     oom_killed = [bool]($serviceSnapshots | Where-Object oom_killed)
     process_missing = [bool]($serviceSnapshots | Where-Object { -not $_.running })
   }
-  if ($elapsed -ge $DurationSeconds) { break }
-  Start-Sleep -Seconds ([math]::Min($IntervalSeconds, $DurationSeconds - [int]$elapsed))
+  $measuredDuration = $elapsed - [double]$samples[0].elapsed_seconds
+  if ($measuredDuration -ge $DurationSeconds) { break }
+  $remaining = [math]::Max($DurationSeconds - $measuredDuration, 1)
+  Start-Sleep -Seconds ([math]::Min($IntervalSeconds, [int][math]::Ceiling($remaining)))
 } while ($true)
 
 $databaseHealthy = $false
 & docker compose exec -T db pg_isready -U dse -d dse_autotrader 2>$null
 $databaseHealthy = $LASTEXITCODE -eq 0
-$auditValid = Test-AuditValidity $Services
+$auditValid = Test-AuditValidity $expectedServices
 $peakContainer = ($samples | Measure-Object container_memory_gib -Maximum).Maximum
 $peakOverhead = ($samples | Measure-Object docker_wsl_overhead_gib -Maximum).Maximum
 $raw = [ordered]@{
   generated_at = (Get-Date).ToUniversalTime().ToString('o')
   stage = $StageLabel
-  expected_services = $Services
+  expected_services = $expectedServices
   duration_seconds = $DurationSeconds
   interval_seconds = $IntervalSeconds
   project_footprint_gib = [math]::Round($peakContainer + $peakOverhead, 4)
