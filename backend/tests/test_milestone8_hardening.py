@@ -73,12 +73,14 @@ def test_infrastructure_doctor_reports_machine_and_human_results(
 
     report = run_infrastructure_doctor(
         tmp_path,
+        workload_tier="integration_tests",
         runner=runner,
         tcp_probe=lambda _, port: port in {5432, 6379},
         resource_reader=lambda: {
             "disk_free_gb": 100,
             "memory_total_gb": 16,
             "memory_free_gb": 8,
+            "memory_commit_headroom_gb": 20,
             "virtualization_available": True,
         },
     )
@@ -114,12 +116,14 @@ def test_infrastructure_doctor_accepts_wsl2_engine_when_windows_service_is_stopp
 
     report = run_infrastructure_doctor(
         tmp_path,
+        workload_tier="integration_tests",
         runner=runner,
         tcp_probe=lambda _, port: port in {5432, 6379},
         resource_reader=lambda: {
             "disk_free_gb": 100,
             "memory_total_gb": 16,
             "memory_free_gb": 8,
+            "memory_commit_headroom_gb": 20,
             "virtualization_available": True,
         },
     )

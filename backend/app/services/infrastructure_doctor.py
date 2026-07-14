@@ -10,10 +10,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.memory_preflight import WORKLOAD_REQUIREMENTS
+
 CommandRunner = Callable[[Sequence[str]], tuple[int, str]]
 TcpProbe = Callable[[str, int], bool]
 ResourceReader = Callable[[], dict[str, Any]]
-REQUIRED_COMPOSE_SERVICES = ("db", "db_test", "redis")
+WORKLOAD_SERVICES = {
+    "database_only": ("db", "redis"),
+    "integration_tests": ("db", "db_test", "redis"),
+    "distributed_runtime": ("db", "redis"),
+    "distributed_campaign": ("db", "redis"),
+}
 
 
 def _run(command: Sequence[str]) -> tuple[int, str]:
@@ -37,6 +44,8 @@ def _resources() -> dict[str, Any]:
     disk = shutil.disk_usage(Path.cwd().anchor or Path.cwd())
     memory_total_gb: float | None = None
     memory_free_gb: float | None = None
+    memory_committed_gb: float | None = None
+    memory_commit_limit_gb: float | None = None
     virtualization: bool | None = None
     if os.name == "nt":
         code, output = _run(
@@ -45,9 +54,12 @@ def _resources() -> dict[str, Any]:
                 "-NoProfile",
                 "-Command",
                 "$os=Get-CimInstance Win32_OperatingSystem;"
+                "$mem=Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory;"
                 "$cpu=Get-CimInstance Win32_Processor|Select-Object -First 1;"
                 "[pscustomobject]@{total=[math]::Round($os.TotalVisibleMemorySize/1MB,2);"
                 "free=[math]::Round($os.FreePhysicalMemory/1MB,2);"
+                "committed=[math]::Round($mem.CommittedBytes/1GB,2);"
+                "commit_limit=[math]::Round($mem.CommitLimit/1GB,2);"
                 "virtualization=$cpu.VirtualizationFirmwareEnabled}|ConvertTo-Json -Compress",
             ]
         )
@@ -56,6 +68,8 @@ def _resources() -> dict[str, Any]:
                 data = json.loads(output)
                 memory_total_gb = float(data["total"])
                 memory_free_gb = float(data["free"])
+                memory_committed_gb = float(data["committed"])
+                memory_commit_limit_gb = float(data["commit_limit"])
                 virtualization = bool(data["virtualization"])
             except (KeyError, TypeError, ValueError, json.JSONDecodeError):
                 pass
@@ -63,6 +77,13 @@ def _resources() -> dict[str, Any]:
         "disk_free_gb": round(disk.free / 1024**3, 2),
         "memory_total_gb": memory_total_gb,
         "memory_free_gb": memory_free_gb,
+        "memory_committed_gb": memory_committed_gb,
+        "memory_commit_limit_gb": memory_commit_limit_gb,
+        "memory_commit_headroom_gb": (
+            round(memory_commit_limit_gb - memory_committed_gb, 2)
+            if memory_commit_limit_gb is not None and memory_committed_gb is not None
+            else None
+        ),
         "virtualization_available": virtualization,
     }
 
@@ -115,15 +136,21 @@ def _compose_service_health(output: str) -> dict[str, dict[str, str]]:
 def run_infrastructure_doctor(
     output_dir: Path,
     *,
+    workload_tier: str = "distributed_campaign",
+    expect_application_ports: bool = False,
     runner: CommandRunner = _run,
     tcp_probe: TcpProbe = _tcp,
     resource_reader: ResourceReader = _resources,
 ) -> dict[str, Any]:
+    if workload_tier not in WORKLOAD_REQUIREMENTS:
+        raise ValueError(f"Unknown infrastructure workload tier: {workload_tier}")
+    requirement = WORKLOAD_REQUIREMENTS[workload_tier]
+    required_services = WORKLOAD_SERVICES[workload_tier]
     docker_path = shutil.which("docker")
     docker_code, docker_output = runner(["docker", "version"])
     compose_code, compose_output = runner(["docker", "compose", "version"])
     compose_ps_code, compose_ps_output = runner(
-        ["docker", "compose", "ps", "--format", "json", *REQUIRED_COMPOSE_SERVICES]
+        ["docker", "compose", "ps", "--format", "json", *required_services]
     )
     wsl_code, wsl_output = runner(["wsl.exe", "--status"])
     service_code, service_output = runner(
@@ -142,7 +169,7 @@ def run_infrastructure_doctor(
     required_containers_healthy = compose_ps_code == 0 and all(
         compose_services.get(service, {}).get("state") == "running"
         and compose_services.get(service, {}).get("health") == "healthy"
-        for service in REQUIRED_COMPOSE_SERVICES
+        for service in required_services
     )
     docker_runtime_demonstrably_ready = (
         engine_available and compose_code == 0 and required_containers_healthy
@@ -152,7 +179,9 @@ def run_infrastructure_doctor(
         or "version 2" in wsl_output.lower()
         or "default version: 2" in wsl_output.lower()
     )
-    free_ports = all(not value for key, value in port_states.items() if key in {"3000", "8000"})
+    application_ports_usable = not port_states["3000"] and (
+        port_states["8000"] if expect_application_ports else not port_states["8000"]
+    )
     data_ports_usable = all(not port_states[key] or key in {"5432", "6379"} for key in port_states)
     checks = [
         _check(
@@ -188,10 +217,10 @@ def run_infrastructure_doctor(
             required_containers_healthy,
             {
                 "compose_command_succeeded": compose_ps_code == 0,
-                "required_services": list(REQUIRED_COMPOSE_SERVICES),
+                "required_services": list(required_services),
                 "services": compose_services,
             },
-            "Start the approved db, db_test, and redis Compose services and wait until all three Docker health checks report healthy.",
+            "Start the approved services listed for this workload tier and wait until every required Docker health check reports healthy.",
         ),
         _check(
             "wsl2_available",
@@ -201,9 +230,14 @@ def run_infrastructure_doctor(
         ),
         _check(
             "required_ports_usable",
-            free_ports and data_ports_usable,
-            port_states,
-            "Stop or reconfigure the conflicting process on 3000/8000. Confirm any listener on 5432/6379 is the intended isolated service.",
+            application_ports_usable and data_ports_usable,
+            {
+                "ports": port_states,
+                "expect_application_ports": expect_application_ports,
+                "frontend_expected": False,
+                "api_expected": expect_application_ports,
+            },
+            "Confirm port 8000 matches the requested pre/post-start phase, keep port 3000 unused, and verify listeners on 5432/6379 are approved services.",
         ),
         _check(
             "disk_space",
@@ -213,13 +247,20 @@ def run_infrastructure_doctor(
         ),
         _check(
             "memory",
-            float(resources.get("memory_free_gb") or 0) >= 4,
+            (
+                float(resources.get("memory_free_gb") or 0) >= requirement.minimum_available_gib
+                and float(resources.get("memory_commit_headroom_gb") or 0)
+                >= requirement.minimum_commit_headroom_gib
+            ),
             {
+                "workload_tier": workload_tier,
                 "total_gb": resources.get("memory_total_gb"),
                 "free_gb": resources.get("memory_free_gb"),
-                "minimum_free_gb": 4,
+                "minimum_free_gb": requirement.minimum_available_gib,
+                "commit_headroom_gb": resources.get("memory_commit_headroom_gb"),
+                "minimum_commit_headroom_gb": requirement.minimum_commit_headroom_gib,
             },
-            "Close memory-heavy applications or increase available RAM until at least 4 GB is free before the distributed exercise.",
+            "Close memory-heavy applications or use only a lower workload tier whose physical and commit-headroom gates pass.",
         ),
         _check(
             "virtualization",
@@ -243,6 +284,7 @@ def run_infrastructure_doctor(
     ready = all(bool(item["passed"]) for item in checks if item["required"])
     report: dict[str, Any] = {
         "generated_at": datetime.now(UTC).isoformat(),
+        "workload_tier": workload_tier,
         "ready": ready,
         "fail_closed": not ready,
         "checks": checks,

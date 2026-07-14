@@ -106,11 +106,26 @@ def main() -> None:
     infrastructure = sub.add_parser("infrastructure")
     infrastructure.add_argument("action", choices=["doctor"])
     infrastructure.add_argument("--output-dir", default="../reports/infrastructure")
+    infrastructure.add_argument(
+        "--workload-tier",
+        choices=[
+            "database_only",
+            "integration_tests",
+            "distributed_runtime",
+            "distributed_campaign",
+        ],
+        default="distributed_campaign",
+    )
+    infrastructure.add_argument("--expect-application-ports", action="store_true")
     args = parser.parse_args()
     if args.command == "infrastructure":
         from app.services.infrastructure_doctor import run_infrastructure_doctor
 
-        report = run_infrastructure_doctor(Path(args.output_dir))
+        report = run_infrastructure_doctor(
+            Path(args.output_dir),
+            workload_tier=args.workload_tier,
+            expect_application_ports=args.expect_application_ports,
+        )
         print(json.dumps(report, indent=2, default=str))
         raise SystemExit(0 if report["ready"] else 2)
     if args.command == "verify-data":

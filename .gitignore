@@ -24,6 +24,7 @@ reports/infrastructure/
 reports/dependencies/
 reports/recovery/
 reports/incidents/
+reports/memory/
 logs/
 data/process-state/
 !data/cache/.gitkeep
