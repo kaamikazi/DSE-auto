@@ -178,3 +178,24 @@ Decision: **SAFE ONLY IN STAGES**. Measured host memory had ample commit headroo
 | Security and audit | Verified locally | `pip-audit` and secret scan passed; canonical chain valid with 137 events; paper/live-disabled/broker-disabled state confirmed |
 
 No accelerated-distributed, outage-recovery, SQLite-to-PostgreSQL copy, or real-market evidence claim is made.
+
+## Milestone 9 low-memory continuation — 2026-07-15
+
+| Verification | Classification | Result |
+| --- | --- | --- |
+| B1 ten-minute gate | Real serialized | PASS: 610.2 s, 3.55 GiB minimum available, 10.394 GiB minimum commit headroom, no restart/OOM/loss, valid audit/db |
+| B2 ten-minute gate | Real serialized | FAIL CLOSED: host paging/memory trend; no multi-worker behavior claim |
+| B3 ten-minute gate | Real serialized | PASS: 610.0 s, 3.416 GiB minimum available, 16.434 GiB minimum commit headroom |
+| API/scheduler/Redis restarts | Real serialized | 3 PASS with incidents, audit, reconciliation, memory evidence |
+| SQLite→PostgreSQL | Real isolated | PASS: 33 tables, counts/hashes/constraints, 10 sequences, canonical audit; source unchanged |
+| Portfolio onboarding isolation | Automated isolated tests | PASS: preview/hash/duplicate/reversal/credentials/zero orders/paper isolation |
+| Backend | Real local + PostgreSQL/Redis integration | 139/139 passed |
+| Ruff | Static | Format/lint passed for backend app/tests and new scripts |
+| strict mypy | Static | 88 application sources passed |
+| PowerShell parser | Static | 29 scripts passed |
+| Frontend | Local build | TypeScript, ESLint, Next.js production build passed |
+| Dependency/security | Static/local | npm audit 0 vulnerabilities; pip-audit no known vulnerabilities; secret scan no findings |
+| Recovery bundle | Isolated restore | PASS: manifest/hash/db/audit/archive/campaign/qualification/locks/secrets/paper safety |
+| Campaign | Blocked/not run | B2 gate failed; no 3-day or 10-day claim |
+
+Operational SQLite and the exercised PostgreSQL copy both ended with valid canonical audit chains. Safety remained `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled`.

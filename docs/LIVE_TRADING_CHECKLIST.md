@@ -66,5 +66,12 @@ Milestone 8 does not add or authorize live execution. `TRADING_MODE=paper`, `LIV
 ## Milestone 9 staged evidence
 
 - [x] Real PostgreSQL and Redis Stage A integration paths passed.
+- [x] Isolated SQLite-to-PostgreSQL copy matches counts, normalized hashes, constraints, audit, and sequences.
+- [x] Real serialized B1/B3 one-worker stability gates passed.
+- [x] Real serialized API, scheduler, and queued-task Redis restart exercises passed with incidents/audit/reconciliation.
+- [x] Reference-labelled import isolation is covered by preview/hash/duplicate/reversal/credential-rejection/order-isolation tests.
+- [ ] B2 two-worker gate passes without severe paging or declining available memory.
+- [ ] Worker-mid-task, stale-lease, PostgreSQL-mid-task, and dead-letter replay exercises pass with real evidence.
+- [ ] Accelerated 3-day then 10-day distributed infrastructure campaign passes; this would still not be real-market evidence.
 - [ ] The 3 GiB distributed-runtime post-start memory gate passes and worker/restart verification completes.
 - [ ] The 4 GiB distributed-campaign gate passes; accelerated infrastructure validation remains non-real-market evidence.

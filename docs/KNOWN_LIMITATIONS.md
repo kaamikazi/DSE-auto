@@ -61,3 +61,13 @@
 - Starting the four Stage B application containers reduced available memory to 2.38 GiB, below the retained 3 GiB runtime margin.
 - Commit headroom is ample because of the 23 GiB pagefile, but paging capacity is not treated as a substitute for physical memory.
 - SQLite-to-PostgreSQL operational-copy comparison, real restart/outage exercises, distributed campaign, and portfolio onboarding expansion remain blocked/not run.
+
+## Low-memory continuation status (2026-07-15)
+
+- B2 failed due host paging/memory trend; two-worker competition, worker crash/stale lease, dead-letter replay, and all-process simultaneous validation remain blocked.
+- PostgreSQL-mid-task restart remains not run because no safe long-running retry fixture exists.
+- The 3-day and 10-day accelerated distributed campaigns remain blocked/not run; no real-market evidence exists.
+- API, scheduler, and queued-task Redis restart passed only as real serialized B3 exercises.
+- SQLite-to-PostgreSQL copy passed in an isolated database; primary-database cutover and PostgreSQL-native backup/restore remain separate blockers.
+- Portfolio isolation is test-verified, but no actual real-account statement was imported and no broker credentials/access were used.
+- This 16 GiB host remains sensitive to unrelated Oracle/MySQL/SQL Server and user-process pressure.
