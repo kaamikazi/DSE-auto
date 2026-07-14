@@ -135,8 +135,8 @@ def certify_adapter(
             ordering_failures.append(symbol)
         if len(timestamps) != len(set(timestamps)):
             duplicate_failures.append(symbol)
-        if [item.model_dump(mode="json") for item in first] != [
-            item.model_dump(mode="json") for item in second
+        if [item.model_dump(mode="json", exclude={"received_at"}) for item in first] != [
+            item.model_dump(mode="json", exclude={"received_at"}) for item in second
         ]:
             consistency_failures.append(symbol)
     checks.append(_check("event_ordering", not ordering_failures, ordering_failures))

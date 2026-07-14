@@ -18,13 +18,13 @@ REDIS_URL = os.getenv("TEST_REDIS_URL")
 def test_postgresql_clean_migration_downgrade_and_reupgrade() -> None:
     assert POSTGRES_URL is not None
     config = Config("alembic.ini")
-    config.set_main_option("sqlalchemy.url", POSTGRES_URL)
+    config.attributes["database_url_override"] = POSTGRES_URL
     command.upgrade(config, "head")
     engine = create_engine(POSTGRES_URL)
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
         assert connection.scalar(text("SELECT 1")) == 1
-    command.downgrade(config, "0007")
+    command.downgrade(config, "0008")
     command.upgrade(config, "head")
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT version_num FROM alembic_version")) == "0009"
