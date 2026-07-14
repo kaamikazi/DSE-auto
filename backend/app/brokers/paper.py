@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from decimal import ROUND_DOWN, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.brokers.base import BrokerAdapter
@@ -269,7 +269,14 @@ class PaperBroker(BrokerAdapter):
             .having(__import__("sqlalchemy").func.count() > 1)
         )
         derived_cash = account.starting_cash
-        transactions = self.db.scalars(select(Transaction)).all()
+        transactions = self.db.scalars(
+            select(Transaction).where(
+                or_(
+                    Transaction.account_label.is_(None),
+                    Transaction.account_label.in_(("paper", "simulation")),
+                )
+            )
+        ).all()
         for t in transactions:
             qty, prc, fee, tax = t.quantity, t.price, t.fees, t.taxes
             if t.transaction_type in {"buy", "rights"}:

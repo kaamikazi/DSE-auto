@@ -33,7 +33,12 @@ def add_transaction(
     return transaction
 
 
-def derive_portfolio(db: Session, prices: dict[str, Decimal] | None = None) -> PortfolioView:
+def derive_portfolio(
+    db: Session,
+    prices: dict[str, Decimal] | None = None,
+    *,
+    account_label: str | None = None,
+) -> PortfolioView:
     prices = prices or {}
     state: dict[str, dict[str, Decimal]] = defaultdict(
         lambda: {
@@ -43,9 +48,10 @@ def derive_portfolio(db: Session, prices: dict[str, Decimal] | None = None) -> P
             "dividend": ZERO,
         }
     )
-    transactions = db.scalars(
-        select(Transaction).order_by(Transaction.occurred_at, Transaction.created_at)
-    ).all()
+    query = select(Transaction)
+    if account_label is not None:
+        query = query.where(Transaction.account_label == account_label)
+    transactions = db.scalars(query.order_by(Transaction.occurred_at, Transaction.created_at)).all()
     for tx in transactions:
         item = state[tx.symbol]
         quantity, price, fees, taxes = tx.quantity, tx.price, tx.fees, tx.taxes
@@ -108,7 +114,7 @@ def derive_portfolio(db: Session, prices: dict[str, Decimal] | None = None) -> P
             if holding.market_value is not None:
                 holding.allocation_percent = holding.market_value / total_value * 100
     account = db.get(PaperAccount, 1)
-    cash = account.cash if account else ZERO
+    cash = account.cash if account and account_label in {None, "paper"} else ZERO
     total_cost = sum((item.cost_basis for item in holdings), ZERO)
     return PortfolioView(
         holdings=holdings,
