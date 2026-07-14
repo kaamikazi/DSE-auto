@@ -222,6 +222,8 @@ def test_sqlite_migration_copy_has_matching_counts_and_hashes(db: Session, tmp_p
     assert result["count_match"] is True
     assert result["hash_match"] is True
     assert result["verified"] is True
+    assert result["sequence_state"] == {}
+    assert result["sequence_state_valid"] is True
 
 
 def test_full_sqlite_disaster_recovery_exercise(db: Session, tmp_path: Path) -> None:

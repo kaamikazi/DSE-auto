@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import Engine, MetaData, Table, create_engine, func, insert, inspect, select
+from sqlalchemy import Engine, MetaData, Table, create_engine, func, insert, inspect, select, text
 from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  # Register all mapped tables in Base.metadata.
@@ -115,6 +115,38 @@ def database_constraint_signatures(engine: Engine) -> dict[str, Any]:
     }
 
 
+def synchronize_postgresql_sequences(engine: Engine) -> dict[str, dict[str, Any]]:
+    """Advance sequence-backed primary keys after rows are copied with explicit IDs."""
+
+    if engine.dialect.name != "postgresql":
+        return {}
+    synchronized: dict[str, dict[str, Any]] = {}
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            for column in table.primary_key.columns:
+                sequence = connection.scalar(
+                    text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+                    {"table_name": table.name, "column_name": column.name},
+                )
+                if not sequence:
+                    continue
+                maximum = connection.scalar(select(func.max(column)))
+                value = int(maximum) if maximum is not None else 1
+                called = maximum is not None
+                connection.execute(
+                    text("SELECT setval(CAST(:sequence_name AS regclass), :value, :called)"),
+                    {"sequence_name": sequence, "value": value, "called": called},
+                )
+                synchronized[f"{table.name}.{column.name}"] = {
+                    "sequence": str(sequence),
+                    "maximum_id": maximum,
+                    "sequence_value": value,
+                    "is_called": called,
+                    "next_insert_is_safe": maximum is None or value >= int(maximum),
+                }
+    return synchronized
+
+
 def compare_database_fingerprints(source: Engine, destination: Engine) -> dict[str, Any]:
     source_counts, source_hashes = database_fingerprints(source)
     destination_counts, destination_hashes = database_fingerprints(destination)
@@ -183,6 +215,7 @@ def migrate_sqlite_to_postgresql(
                 ]
             if rows:
                 connection.execute(insert(destination_table), rows)
+    sequence_state = synchronize_postgresql_sequences(destination)
     destination_counts, destination_hashes = database_fingerprints(destination)
     destination_constraints = database_constraint_signatures(destination)
     from app.services.audit import verify_audit_chain
@@ -215,6 +248,10 @@ def migrate_sqlite_to_postgresql(
             "destination_counts": destination_counts,
             "destination_hashes": destination_hashes,
             "destination_constraints": destination_constraints,
+            "sequence_state": sequence_state,
+            "sequence_state_valid": all(
+                bool(item["next_insert_is_safe"]) for item in sequence_state.values()
+            ),
             "count_match": source_counts == destination_counts,
             "hash_match": source_hashes == destination_hashes,
             "constraints_match": constraints_match,
@@ -233,6 +270,7 @@ def migrate_sqlite_to_postgresql(
         result["count_match"]
         and result["hash_match"]
         and result["constraints_match"]
+        and result["sequence_state_valid"]
         and source_audit_valid
         and destination_audit_valid
     )
