@@ -76,6 +76,9 @@ def test_low_memory_profile_is_isolated_and_serialized() -> None:
     assert "db_test" not in profile
     assert start.index("memory_doctor.ps1") < start.index("up -d db redis")
     assert "infrastructure_doctor.ps1" in start
-    assert start.index("infrastructure_doctor.ps1") < start.index("docker compose stop db_test")
+    assert "$stopServices = @('db_test') + $unused" in start
+    assert start.index("infrastructure_doctor.ps1") < start.index(
+        "docker compose stop @stopServices"
+    )
     assert "verify-audit" in start
     assert "ValidateSet('B1','B2','B3')" in start
