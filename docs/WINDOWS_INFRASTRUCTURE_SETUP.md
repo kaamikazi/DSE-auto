@@ -15,3 +15,7 @@ Operator remediation:
 5. Run the production-like or distributed verification scripts only after reviewing their explicit service start/restart actions.
 
 Administrative WSL/virtualization changes require separate operator approval and a reboot when Windows requests it.
+
+## Workload-aware preflight
+
+Milestone 9 adds `-WorkloadTier database_only|integration_tests|distributed_runtime|distributed_campaign`. The doctor requires both available physical memory and commit headroom. A stopped `com.docker.service` is a warning only when a live Linux Docker Server, Compose, and every tier-required healthy container independently prove runtime readiness. See `WINDOWS_MEMORY_DIAGNOSTICS.md` and `STAGED_INFRASTRUCTURE_VERIFICATION.md`.

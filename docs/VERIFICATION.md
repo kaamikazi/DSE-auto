@@ -159,3 +159,22 @@ Verdict: **LOCAL/OFFLINE HARDENING PASSED; REAL DISTRIBUTED EXECUTION BLOCKED**.
 | Distributed ten-day campaign | Blocked / not run | The harness is implemented, but its doctor and credential gates prevent execution without real services. |
 
 Status terms in this section are deliberate: “verified locally” means an actual host command completed; “simulated” means controlled failure injection only; “blocked” means no passing result is claimed; “not implemented” remains applicable to live broker execution, browser automation, OTP/CAPTCHA handling, AI approval, and automatic strategy promotion.
+
+## Milestone 9 staged infrastructure verification — 2026-07-14
+
+Decision: **SAFE ONLY IN STAGES**. Measured host memory had ample commit headroom but insufficient physical margin for the full campaign.
+
+| Result | Classification | Evidence |
+| --- | --- | --- |
+| Memory diagnostics | Measured | 15.26 GiB total; 3.41 GiB available before stages; 17.65 GiB commit headroom; 23 GiB pagefile |
+| Docker WSL2 service handling | Verified | Linux Server, Compose, and required healthy containers make the stopped Windows service informational |
+| Stage A PostgreSQL | Verified with real infrastructure | PostgreSQL 16 clean `0009`, downgrade `0008`, re-upgrade, connectivity passed |
+| Stage A Redis | Verified with real infrastructure | Real isolated queue duplicate round trip and health passed |
+| Stage B runtime | Blocked after real startup measurement | API/scheduler/two workers started; memory fell to 2.38 GiB below 3 GiB; processes stopped |
+| Stage C campaign | Blocked / not run | 4 GiB physical margin did not pass |
+| Full backend | Verified locally | 126 passed; two infrastructure tests skipped in the environment-independent full run and separately passed against real Stage A services |
+| Python quality | Verified locally | Ruff format/lint and strict mypy passed across 96 source files |
+| Frontend | Verified locally | `npm ci`, typecheck, ESLint, production build, and npm audit passed; zero vulnerabilities |
+| Security and audit | Verified locally | `pip-audit` and secret scan passed; canonical chain valid with 137 events; paper/live-disabled/broker-disabled state confirmed |
+
+No accelerated-distributed, outage-recovery, SQLite-to-PostgreSQL copy, or real-market evidence claim is made.

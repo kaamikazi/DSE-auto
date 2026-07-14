@@ -54,3 +54,10 @@
 - **Existing virtual environment**: The checked-out `.venv` contains stale editable metadata referring to the independent Antigravity workspace. Verification explicitly pins `PYTHONPATH` to this repository; operators should replace that environment from the hash-locked requirements.
 - **Optional Playwright metadata**: `@playwright/test` appears only as an optional peer entry in `package-lock.json`; it is not an application dependency or browser-automation implementation.
 - **Provider timestamp trust**: Both current public-provider diagnostic reports classify exchange timestamp support as unsupported. Neither provider can authorize paper-order approval under the trusted-timestamp gate.
+
+## Milestone 9 staged limitations
+
+- Stage A PostgreSQL and Redis integration tests are real; Stage B worker behavior and Stage C campaign behavior remain unverified.
+- Starting the four Stage B application containers reduced available memory to 2.38 GiB, below the retained 3 GiB runtime margin.
+- Commit headroom is ample because of the 23 GiB pagefile, but paging capacity is not treated as a substitute for physical memory.
+- SQLite-to-PostgreSQL operational-copy comparison, real restart/outage exercises, distributed campaign, and portfolio onboarding expansion remain blocked/not run.

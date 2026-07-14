@@ -62,3 +62,9 @@ Milestone 7 remains production-like paper infrastructure only. No checklist comp
 - [ ] A separately scoped live system is designed, reviewed, and released; the current broker adapter remains disabled.
 
 Milestone 8 does not add or authorize live execution. `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled` remain hard gates.
+
+## Milestone 9 staged evidence
+
+- [x] Real PostgreSQL and Redis Stage A integration paths passed.
+- [ ] The 3 GiB distributed-runtime post-start memory gate passes and worker/restart verification completes.
+- [ ] The 4 GiB distributed-campaign gate passes; accelerated infrastructure validation remains non-real-market evidence.
