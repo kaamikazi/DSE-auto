@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from sqlalchemy import Engine, MetaData, Table, create_engine, func, insert, select
+from sqlalchemy import Engine, MetaData, Table, create_engine, func, insert, inspect, select
+from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  # Register all mapped tables in Base.metadata.
 from app.core.database import Base
@@ -24,7 +25,12 @@ def redact_database_url(url: str) -> str:
 
 
 def _json_default(value: object) -> str:
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime):
+        normalized = value
+        if value.tzinfo is not None:
+            normalized = value.astimezone(UTC).replace(tzinfo=None)
+        return normalized.isoformat(timespec="microseconds")
+    if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, Decimal):
         return str(value)
@@ -58,6 +64,55 @@ def database_fingerprints(engine: Engine) -> tuple[dict[str, int], dict[str, str
         except Exception:
             continue
     return counts, hashes
+
+
+def database_constraint_signatures(engine: Engine) -> dict[str, Any]:
+    """Return dialect-independent foreign-key and uniqueness semantics."""
+
+    inspector = inspect(engine)
+    expected_tables = sorted(table.name for table in Base.metadata.sorted_tables)
+    actual_tables = sorted(
+        table for table in inspector.get_table_names() if table != "alembic_version"
+    )
+    foreign_keys: dict[str, list[dict[str, Any]]] = {}
+    unique_constraints: dict[str, list[list[str]]] = {}
+    for table in expected_tables:
+        foreign_keys[table] = sorted(
+            (
+                {
+                    "columns": list(item.get("constrained_columns") or []),
+                    "referred_table": item.get("referred_table"),
+                    "referred_columns": list(item.get("referred_columns") or []),
+                }
+                for item in inspector.get_foreign_keys(table)
+            ),
+            key=lambda item: json.dumps(item, sort_keys=True),
+        )
+        unique_columns = {
+            tuple(
+                sorted(
+                    str(column) for column in (item.get("column_names") or []) if column is not None
+                )
+            )
+            for item in inspector.get_unique_constraints(table)
+        }
+        unique_columns.update(
+            tuple(
+                sorted(
+                    str(column) for column in (item.get("column_names") or []) if column is not None
+                )
+            )
+            for item in inspector.get_indexes(table)
+            if item.get("unique")
+        )
+        unique_constraints[table] = [list(columns) for columns in sorted(unique_columns)]
+    return {
+        "expected_tables": expected_tables,
+        "actual_tables": actual_tables,
+        "tables_match": expected_tables == actual_tables,
+        "foreign_keys": foreign_keys,
+        "unique_constraints": unique_constraints,
+    }
 
 
 def compare_database_fingerprints(source: Engine, destination: Engine) -> dict[str, Any]:
@@ -97,12 +152,14 @@ def migrate_sqlite_to_postgresql(
     source = create_engine(source_url)
     destination = create_engine(destination_url)
     source_counts, source_hashes = database_fingerprints(source)
+    source_constraints = database_constraint_signatures(source)
     result: dict[str, Any] = {
         "source": redact_database_url(source_url),
         "destination": redact_database_url(destination_url),
         "dry_run": dry_run,
         "source_counts": source_counts,
         "source_hashes": source_hashes,
+        "source_constraints": source_constraints,
         "copied": False,
         "verified": False,
     }
@@ -127,14 +184,56 @@ def migrate_sqlite_to_postgresql(
             if rows:
                 connection.execute(insert(destination_table), rows)
     destination_counts, destination_hashes = database_fingerprints(destination)
+    destination_constraints = database_constraint_signatures(destination)
+    from app.services.audit import verify_audit_chain
+
+    with Session(source) as source_session, Session(destination) as destination_session:
+        source_audit_valid = verify_audit_chain(source_session)
+        destination_audit_valid = verify_audit_chain(destination_session)
+    critical_tables = (
+        "audit_chains",
+        "audit_events",
+        "validation_campaigns",
+        "campaign_days",
+        "operational_incidents",
+        "evidence_reviews",
+        "paper_qualifications",
+        "market_rule_sets",
+        "fee_profiles",
+        "strategy_registrations",
+    )
+    constraints_match = (
+        source_constraints["foreign_keys"] == destination_constraints["foreign_keys"]
+        and source_constraints["unique_constraints"]
+        == destination_constraints["unique_constraints"]
+        and source_constraints["tables_match"]
+        and destination_constraints["tables_match"]
+    )
     result.update(
         {
             "copied": True,
             "destination_counts": destination_counts,
             "destination_hashes": destination_hashes,
+            "destination_constraints": destination_constraints,
             "count_match": source_counts == destination_counts,
             "hash_match": source_hashes == destination_hashes,
+            "constraints_match": constraints_match,
+            "source_audit_valid": source_audit_valid,
+            "destination_audit_valid": destination_audit_valid,
+            "critical_table_counts": {
+                table: {
+                    "source": source_counts.get(table, 0),
+                    "destination": destination_counts.get(table, 0),
+                }
+                for table in critical_tables
+            },
         }
     )
-    result["verified"] = bool(result["count_match"] and result["hash_match"])
+    result["verified"] = bool(
+        result["count_match"]
+        and result["hash_match"]
+        and result["constraints_match"]
+        and source_audit_valid
+        and destination_audit_valid
+    )
     return result

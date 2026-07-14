@@ -15,6 +15,7 @@ os.environ.update(
         "DATA_PRIMARY_PROVIDER": "mock",
         "DATA_SECONDARY_PROVIDER": "csv",
         "API_SECRET_KEY": "test-secret-key-at-least-32-characters",
+        "REVIEWER_API_SECRET_KEY": "development-reviewer-secret-change-me",
     }
 )
 

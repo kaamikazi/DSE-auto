@@ -22,7 +22,7 @@ from app.models import (
     ValidationCampaign,
 )
 from app.services.audit import append_audit, verify_audit_chain
-from app.services.database_migration import compare_database_fingerprints
+from app.services.database_migration import _json_default, compare_database_fingerprints
 from app.services.infrastructure_doctor import run_infrastructure_doctor
 from app.services.infrastructure_incidents import run_controlled_exercise
 from app.services.qualification import calculate_qualification
@@ -179,6 +179,12 @@ def test_database_fingerprint_mismatch_is_blocking(tmp_path: Path) -> None:
     assert result["verified"] is False
     assert result["fail_closed"] is True
     assert "risk_state" in result["count_mismatches"]
+
+
+def test_database_fingerprint_normalizes_naive_and_utc_datetimes() -> None:
+    naive = datetime(2026, 7, 15, 1, 2, 3, 456789)
+    aware = naive.replace(tzinfo=UTC)
+    assert _json_default(naive) == _json_default(aware)
 
 
 def test_dependency_inputs_are_exact_and_locks_are_hashed() -> None:
