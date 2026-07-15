@@ -1,0 +1,20 @@
+{
+  "classification": "research_and_import_validation_only",
+  "symbols": ["GP", "ACI", "BRACBANK"],
+  "benchmark": "DSEX",
+  "market_date_required": true,
+  "stated_source_required": true,
+  "source_timestamp_required": true,
+  "timestamp_trust": "operator_attested",
+  "attestation": "I confirm this file represents the stated DSE market date and source, and I understand it is operator-attested rather than exchange-verified.",
+  "workflow": [
+    "complete template",
+    "calculate immutable raw SHA-256 during preview",
+    "validate schema/date/symbols",
+    "check duplicates",
+    "obtain explicit activation approval",
+    "retain rollback linkage"
+  ],
+  "campaign_qualification_allowed": false,
+  "campaign_created": false
+}
