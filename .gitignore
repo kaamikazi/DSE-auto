@@ -25,6 +25,7 @@ reports/dependencies/
 reports/recovery/
 reports/incidents/
 reports/memory/
+reports/distributed_campaign/*.dump
 logs/
 data/process-state/
 !data/cache/.gitkeep
