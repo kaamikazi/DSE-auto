@@ -7,7 +7,16 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 TransactionType = Literal[
-    "buy", "sell", "dividend", "bonus", "split", "rights", "fee", "tax", "adjustment"
+    "buy",
+    "sell",
+    "dividend",
+    "bonus",
+    "split",
+    "rights",
+    "fee",
+    "tax",
+    "adjustment",
+    "cash_balance",
 ]
 
 
@@ -31,6 +40,8 @@ class TransactionCreate(BaseModel):
             self.quantity <= 0 or self.price <= 0
         ):
             raise ValueError("trade quantity and price must be positive")
+        if self.transaction_type == "cash_balance" and self.symbol != "BDT":
+            raise ValueError("cash-balance rows must use symbol BDT")
         return self
 
 
