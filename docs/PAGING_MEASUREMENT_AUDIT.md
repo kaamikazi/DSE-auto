@@ -10,7 +10,7 @@ The corrected rerun passed after a 120-second warm-up and 612.4 seconds of stead
 - Disk-read latency peaked at 0.56 ms, queue length at 0.01, scheduler lag at 0.958 seconds, and worker-heartbeat delay at 28.262 seconds.
 - No restart, OOM, task loss, database failure, or audit failure occurred.
 
-This is the intended multi-signal outcome: high aggregate faults without paging pressure or operational degradation are not thrashing. Raw SHA-256: `CCA5C08999BDD43A2A985AE21AF3A59D44371E670C315C5F07D7131E12462BB2`; result SHA-256: `20E85EAA2284F7B417171D82FC878FD7942DAF221FA59F7E5D58D0EFEAE18A77`. Shutdown was captured separately with SHA-256 `C37066E35654A1396ED8A65D6EA8BE4E5742F4CC1E9BCE8D5CA4C6B4DA9A456C`.
+This is the intended multi-signal outcome: high aggregate faults without paging pressure or operational degradation are not thrashing. Raw SHA-256: `CCA5C08999BDD43A2A985AE21AF3A59D44371E670C315C5F07D7131E12462BB2`; result SHA-256: `20E85EAA2284F7B417171D82FC878FD7942DAF221FA59F7E5D58D0EFEAE18A77`. An actual scheduler/two-worker stop was captured separately in four shutdown samples, three of which recorded missing application processes as expected; SHA-256 `DDAC5EF689522B58FA2A108A28A8C43EA3847BD7110A0A0A887B9BE50C7F27D2`.
 
 Status: **measurement audit completed; B2 remains blocked pending a new run**. No worker, campaign, or outage exercise was run during this audit.
 

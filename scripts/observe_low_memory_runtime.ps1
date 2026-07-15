@@ -37,7 +37,7 @@ function Convert-MemoryToGiB([string]$Value) {
 }
 
 function Get-ServiceSnapshot([string]$Service) {
-  $id = (& docker compose ps -q $Service).Trim()
+  $id = (@(& docker compose ps -q $Service) -join '').Trim()
   if (-not $id) {
     return [pscustomobject]@{ service=$Service; running=$false; memory_gib=0; restarts=0; oom_killed=$false }
   }
@@ -91,7 +91,10 @@ function Get-PagingSnapshot {
 
 function Get-OperationalSignals([string[]]$ExpectedServices) {
   $candidate = @('scheduler','worker','worker_2','backend') |
-    Where-Object { $ExpectedServices -contains $_ -and ((& docker compose ps -q $_).Trim()) } |
+    Where-Object {
+      $ExpectedServices -contains $_ -and
+        -not [string]::IsNullOrWhiteSpace([string](& docker compose ps -q $_))
+    } |
     Select-Object -First 1
   if (-not $candidate) {
     return [pscustomobject]@{ scheduler_lag_seconds=$null; worker_heartbeat_delay_seconds=$null }
@@ -106,7 +109,10 @@ function Get-OperationalSignals([string[]]$ExpectedServices) {
 
 function Test-AuditValidity([string[]]$ExpectedServices) {
   $candidate = @('backend','scheduler','worker','worker_2') |
-    Where-Object { $ExpectedServices -contains $_ -and ((& docker compose ps -q $_).Trim()) } |
+    Where-Object {
+      $ExpectedServices -contains $_ -and
+        -not [string]::IsNullOrWhiteSpace([string](& docker compose ps -q $_))
+    } |
     Select-Object -First 1
   if (-not $candidate) { return $false }
   & docker compose exec -T $candidate python -c "from app.core.database import SessionLocal; from app.services.audit import verify_audit_chain; db=SessionLocal(); ok=verify_audit_chain(db); db.close(); raise SystemExit(0 if ok else 2)" 2>$null
