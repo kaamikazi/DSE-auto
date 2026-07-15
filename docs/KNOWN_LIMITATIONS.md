@@ -71,3 +71,10 @@
 - SQLite-to-PostgreSQL copy passed in an isolated database; primary-database cutover and PostgreSQL-native backup/restore remain separate blockers.
 - Portfolio isolation is test-verified, but no actual real-account statement was imported and no broker credentials/access were used.
 - This 16 GiB host remains sensitive to unrelated Oracle/MySQL/SQL Server and user-process pressure.
+
+## Paging-measurement correction (2026-07-15)
+
+- The previous B2 failure reason is invalid because `PageReadsPersec + PageWritesPersec` was labelled “hard paging” and averaged startup activity with steady state.
+- The preserved run is not retroactively accepted. B2 remains blocked until a new 120-second-warm-up plus 600-second-steady-state observation uses the corrected counters.
+- Windows hard-fault disk reads can be executable, DLL, mapped-file, or pagefile backed. The available counters do not directly attribute every input page to `pagefile.sys`.
+- The corrected decision therefore requires sustained hard-fault reads plus memory, pagefile, disk, scheduler, heartbeat, process, or database impact.

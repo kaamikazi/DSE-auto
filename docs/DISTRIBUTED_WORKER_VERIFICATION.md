@@ -9,3 +9,5 @@ No worker lease, heartbeat, crash, scheduler restart, Redis restart, PostgreSQL 
 ## 2026-07-15 continuation
 
 B1 provided real serialized evidence for task creation, one worker claim, one attempt, lease release, heartbeat, API response, and graceful shutdown. B3 provided real API restart, abrupt scheduler restart, and Redis restart with one queued task completing exactly once. B2 failed its memory/paging gate, so multi-worker competition, abrupt worker loss, stale lease recovery, PostgreSQL-mid-task recovery, dead-letter replay, and the distributed campaign remain blocked/not run. The earlier blanket “no restart result” statement above is retained as historical Milestone 9 pre-continuation status.
+
+Paging-audit addendum: the B2 gate result above is retained as historical execution evidence but its paging conclusion is invalid. One startup sample dominated an ambiguous `PageReadsPersec + PageWritesPersec` mean without operational degradation. B2 remains blocked and must be rerun under the corrected multi-signal measurement; no distributed behavior result changes until that happens.

@@ -3,10 +3,14 @@ param(
   [string]$StageLabel,
   [Parameter(Mandatory=$true)]
   [string]$Services,
-  [ValidateRange(600, 3600)]
+  [ValidateRange(15, 3600)]
   [int]$DurationSeconds = 600,
   [ValidateRange(15, 120)]
   [int]$IntervalSeconds = 30,
+  [ValidateRange(120, 600)]
+  [int]$WarmupSeconds = 120,
+  [ValidateSet('Runtime','Shutdown')]
+  [string]$Mode = 'Runtime',
   [string]$OutputDirectory = "reports\memory"
 )
 $ErrorActionPreference = "Stop"
@@ -18,6 +22,9 @@ $rawPath = Join-Path $output "runtime_${StageLabel}_raw_$stamp.json"
 $resultPath = Join-Path $output "runtime_${StageLabel}_result_$stamp.json"
 $expectedServices = @($Services.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($expectedServices.Count -eq 0) { throw 'At least one expected service is required' }
+if ($Mode -eq 'Runtime' -and $DurationSeconds -lt 600) {
+  throw 'Runtime mode requires at least 600 steady-state seconds after warm-up'
+}
 
 function Convert-MemoryToGiB([string]$Value) {
   if ($Value -notmatch '^\s*([0-9.]+)\s*([KMG]iB)') { return 0.0 }
@@ -50,6 +57,53 @@ function Get-ServiceSnapshot([string]$Service) {
   }
 }
 
+function Get-CounterValue([object[]]$Samples, [string]$Suffix) {
+  $normalized = $Suffix.ToLowerInvariant()
+  $match = $Samples | Where-Object { $_.Path.ToLowerInvariant().EndsWith($normalized) } |
+    Select-Object -First 1
+  if (-not $match) { throw "Windows performance counter was unavailable: $Suffix" }
+  return [double]$match.CookedValue
+}
+
+function Get-PagingSnapshot {
+  $paths = @(
+    '\Memory\Page Faults/sec',
+    '\Memory\Pages Input/sec',
+    '\Memory\Page Reads/sec',
+    '\Paging File(_Total)\% Usage',
+    '\PhysicalDisk(_Total)\Avg. Disk sec/Read',
+    '\PhysicalDisk(_Total)\Avg. Disk sec/Write',
+    '\PhysicalDisk(_Total)\Avg. Disk Queue Length',
+    '\PhysicalDisk(_Total)\Current Disk Queue Length'
+  )
+  $samples = @(Get-Counter -Counter $paths -MaxSamples 1).CounterSamples
+  return [pscustomobject]@{
+    page_faults_per_second = Get-CounterValue $samples '\memory\page faults/sec'
+    pages_input_per_second = Get-CounterValue $samples '\memory\pages input/sec'
+    page_reads_per_second = Get-CounterValue $samples '\memory\page reads/sec'
+    pagefile_used_percent = Get-CounterValue $samples '\paging file(_total)\% usage'
+    disk_read_latency_ms = 1000 * (Get-CounterValue $samples '\physicaldisk(_total)\avg. disk sec/read')
+    disk_write_latency_ms = 1000 * (Get-CounterValue $samples '\physicaldisk(_total)\avg. disk sec/write')
+    disk_queue_length = Get-CounterValue $samples '\physicaldisk(_total)\avg. disk queue length'
+    current_disk_queue_length = Get-CounterValue $samples '\physicaldisk(_total)\current disk queue length'
+  }
+}
+
+function Get-OperationalSignals([string[]]$ExpectedServices) {
+  $candidate = @('scheduler','worker','worker_2','backend') |
+    Where-Object { $ExpectedServices -contains $_ -and ((& docker compose ps -q $_).Trim()) } |
+    Select-Object -First 1
+  if (-not $candidate) {
+    return [pscustomobject]@{ scheduler_lag_seconds=$null; worker_heartbeat_delay_seconds=$null }
+  }
+  $command = "import json; from app.core.database import SessionLocal; from app.services.runtime_observation import runtime_operational_delays; db=SessionLocal(); print(json.dumps(runtime_operational_delays(db))); db.close()"
+  $payload = & docker compose exec -T $candidate python -c $command 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    return [pscustomobject]@{ scheduler_lag_seconds=$null; worker_heartbeat_delay_seconds=$null }
+  }
+  return $payload | ConvertFrom-Json
+}
+
 function Test-AuditValidity([string[]]$ExpectedServices) {
   $candidate = @('backend','scheduler','worker','worker_2') |
     Where-Object { $ExpectedServices -contains $_ -and ((& docker compose ps -q $_).Trim()) } |
@@ -63,8 +117,9 @@ $samples = @()
 $started = Get-Date
 do {
   $memory = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory
-  $pagefile = Get-CimInstance Win32_PerfFormattedData_PerfOS_PagingFile -Filter "Name='_Total'"
   $pagefileUsage = @(Get-CimInstance Win32_PageFileUsage)
+  $paging = Get-PagingSnapshot
+  $signals = Get-OperationalSignals $expectedServices
   $serviceSnapshots = @($expectedServices | ForEach-Object { Get-ServiceSnapshot $_ })
   $containerMemory = (($serviceSnapshots | Measure-Object memory_gib -Sum).Sum)
   $vmmem = Get-Process -Name vmmemWSL,vmmem -ErrorAction SilentlyContinue
@@ -74,14 +129,30 @@ do {
     $restartMap[$serviceSnapshot.service] = $serviceSnapshot.restarts
   }
   $elapsed = ((Get-Date) - $started).TotalSeconds
+  $phase = if ($Mode -eq 'Shutdown') {
+    'shutdown_activity'
+  } elseif ($elapsed -lt $WarmupSeconds) {
+    'startup_warmup'
+  } else {
+    'steady_state'
+  }
   $samples += [pscustomobject]@{
     captured_at = (Get-Date).ToUniversalTime().ToString('o')
     elapsed_seconds = [math]::Round($elapsed, 1)
+    phase = $phase
     available_gib = [math]::Round($memory.AvailableBytes / 1GB, 3)
     commit_headroom_gib = [math]::Round(($memory.CommitLimit - $memory.CommittedBytes) / 1GB, 3)
     pagefile_used_gib = [math]::Round((($pagefileUsage | Measure-Object CurrentUsage -Sum).Sum) / 1024, 3)
-    pagefile_used_percent = [math]::Round([double]$pagefile.PercentUsage, 2)
-    hard_paging_per_second = [math]::Round([double]$memory.PageReadsPersec + [double]$memory.PageWritesPersec, 2)
+    pagefile_used_percent = [math]::Round($paging.pagefile_used_percent, 2)
+    page_faults_per_second = [math]::Round($paging.page_faults_per_second, 2)
+    pages_input_per_second = [math]::Round($paging.pages_input_per_second, 2)
+    page_reads_per_second = [math]::Round($paging.page_reads_per_second, 2)
+    disk_read_latency_ms = [math]::Round($paging.disk_read_latency_ms, 2)
+    disk_write_latency_ms = [math]::Round($paging.disk_write_latency_ms, 2)
+    disk_queue_length = [math]::Round($paging.disk_queue_length, 2)
+    current_disk_queue_length = [math]::Round($paging.current_disk_queue_length, 2)
+    scheduler_lag_seconds = $signals.scheduler_lag_seconds
+    worker_heartbeat_delay_seconds = $signals.worker_heartbeat_delay_seconds
     container_memory_gib = [math]::Round($containerMemory, 4)
     wsl_working_set_gib = $vmmemGiB
     docker_wsl_overhead_gib = [math]::Round([math]::Max($vmmemGiB - $containerMemory, 0), 4)
@@ -90,7 +161,15 @@ do {
     oom_killed = [bool]($serviceSnapshots | Where-Object oom_killed)
     process_missing = [bool]($serviceSnapshots | Where-Object { -not $_.running })
   }
-  $measuredDuration = $elapsed - [double]$samples[0].elapsed_seconds
+
+  if ($Mode -eq 'Shutdown') {
+    $measuredDuration = $elapsed - [double]$samples[0].elapsed_seconds
+  } else {
+    $steadySamples = @($samples | Where-Object phase -eq 'steady_state')
+    $measuredDuration = if ($steadySamples.Count) {
+      $elapsed - [double]$steadySamples[0].elapsed_seconds
+    } else { 0 }
+  }
   if ($measuredDuration -ge $DurationSeconds) { break }
   $remaining = [math]::Max($DurationSeconds - $measuredDuration, 1)
   Start-Sleep -Seconds ([math]::Min($IntervalSeconds, [int][math]::Ceiling($remaining)))
@@ -105,9 +184,12 @@ $peakOverhead = ($samples | Measure-Object docker_wsl_overhead_gib -Maximum).Max
 $raw = [ordered]@{
   generated_at = (Get-Date).ToUniversalTime().ToString('o')
   stage = $StageLabel
+  mode = $Mode.ToLowerInvariant()
+  counter_api = 'Get-Counter cooked Windows performance counters'
   expected_services = $expectedServices
-  duration_seconds = $DurationSeconds
-  interval_seconds = $IntervalSeconds
+  warmup_seconds = $(if ($Mode -eq 'Runtime') { $WarmupSeconds } else { 0 })
+  steady_state_seconds = $(if ($Mode -eq 'Runtime') { $DurationSeconds } else { 0 })
+  shutdown_observation_seconds = $(if ($Mode -eq 'Shutdown') { $DurationSeconds } else { 0 })
   project_footprint_gib = [math]::Round($peakContainer + $peakOverhead, 4)
   peak_container_memory_gib = $peakContainer
   peak_docker_wsl_overhead_gib = $peakOverhead
@@ -116,6 +198,11 @@ $raw = [ordered]@{
   samples = $samples
 }
 $raw | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $rawPath -Encoding utf8
+
+if ($Mode -eq 'Shutdown') {
+  Write-Output "Read-only shutdown activity evidence: $rawPath"
+  exit 0
+}
 
 Push-Location $root
 try {

@@ -23,7 +23,9 @@ function Get-RuntimeSnapshot {
     captured_at = (Get-Date).ToUniversalTime().ToString('o')
     available_gib = [math]::Round($memory.AvailableBytes / 1GB, 3)
     commit_headroom_gib = [math]::Round(($memory.CommitLimit - $memory.CommittedBytes) / 1GB, 3)
-    hard_paging_per_second = [double]$memory.PageReadsPersec + [double]$memory.PageWritesPersec
+    page_faults_per_second = [double]$memory.PageFaultsPersec
+    pages_input_per_second = [double]$memory.PagesInputPersec
+    page_reads_per_second = [double]$memory.PageReadsPersec
     services = $services
   }
 }

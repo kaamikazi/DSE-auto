@@ -18,3 +18,5 @@ The unchanged pre-start requirement remains 3 GiB available physical memory and 
 | Total project footprint | 0.967 GiB | 0.962 GiB | 0.927 GiB |
 
 B1 and B3 passed. B2 failed due real host paging and memory trend despite flat worker memory; it must not be treated as a capacity pass.
+
+Measurement-audit addendum: the original B2 paging decision used `PageReadsPersec + PageWritesPersec`, which mixes disk operations for hard faults and does not prove pagefile thrashing. That decision is measurement-invalid rather than a capacity result. B2 remains blocked pending a corrected run with a 120-second excluded warm-up, at least 600 steady-state seconds, separate paging/disk/operational counters, and the multi-signal rule in `PAGING_MEASUREMENT_AUDIT.md`.

@@ -199,3 +199,9 @@ No accelerated-distributed, outage-recovery, SQLite-to-PostgreSQL copy, or real-
 | Campaign | Blocked/not run | B2 gate failed; no 3-day or 10-day claim |
 
 Operational SQLite and the exercised PostgreSQL copy both ended with valid canonical audit chains. Safety remained `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled`.
+
+## Paging measurement audit — 2026-07-15
+
+The prior B2 and B2-rerun paging failures used a misleading project-defined sum of Windows `PageReadsPersec + PageWritesPersec`. The rerun's 184.75/s mean was dominated by one 2,922 startup sample; the other samples were zero except 19 and 15. That counter did not distinguish file-backed hard faults from pagefile activity and produced no corresponding RAM, pagefile, disk, process, database, or audit consequence.
+
+The old B2 result is now classified **measurement-invalid / blocked pending rerun**, not passed. The corrected diagnostic separates Windows faults, pages input, read operations, pagefile usage, disk latency/queue, available memory, commit headroom, scheduler lag, and worker heartbeat delay; excludes a 120-second startup warm-up; and requires sustained paging plus a consequence. Focused paging-analysis tests passed. See `PAGING_MEASUREMENT_AUDIT.md`.
