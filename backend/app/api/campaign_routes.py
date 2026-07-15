@@ -22,6 +22,7 @@ from app.models import (
     ValidationCampaign,
 )
 from app.schemas.campaigns import (
+    BackupEvidence,
     CampaignCreate,
     FeeProfileCreate,
     IncidentCreate,
@@ -44,6 +45,7 @@ from app.services.campaigns import (
     campaign_view,
     complete_campaign_day,
     create_campaign,
+    evaluate_campaign_readiness,
     recover_missed_eod,
     start_campaign_day,
     transition_campaign,
@@ -59,6 +61,9 @@ from app.services.governance import (
 )
 from app.services.incidents import open_incident, transition_incident
 from app.services.observability import health_summary
+from app.services.portfolio import derive_portfolio
+from app.services.qualification import calculate_qualification
+from app.services.real_market_operations import complete_real_market_day, generate_weekly_report
 
 router = APIRouter()
 Db = Annotated[Session, Depends(get_db)]
@@ -100,16 +105,31 @@ def get_campaign_summary(campaign_id: str, db: Db) -> dict[str, Any]:
     return result
 
 
+@router.post("/campaigns/{campaign_id}/weekly-report", dependencies=[Depends(require_api_key)])
+def create_weekly_report(campaign_id: str, db: Db) -> dict[str, Any]:
+    try:
+        return generate_weekly_report(
+            db,
+            _campaign(db, campaign_id),
+            output_root=Path("../reports/real_market"),
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 @router.post("/campaigns/{campaign_id}/state/{action}", dependencies=[Depends(require_api_key)])
 def change_campaign_state(campaign_id: str, action: str, reason: str, db: Db) -> dict[str, Any]:
     target = {
         "activate": "active",
+        "await-data": "awaiting_data",
+        "ready": "ready",
         "pause": "paused",
         "resume": "active",
         "degrade": "degraded",
         "require-reconciliation": "reconciliation_required",
         "complete": "completed",
-        "fail": "failed",
+        "fail": "invalidated",
+        "invalidate": "invalidated",
     }.get(action)
     try:
         campaign = _campaign(db, campaign_id)
@@ -126,20 +146,45 @@ def change_campaign_state(campaign_id: str, action: str, reason: str, db: Db) ->
 def start_daily_session(
     campaign_id: str,
     market_date: date,
+    acknowledgement: str,
     db: Db,
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     try:
-        day = start_campaign_day(db, _campaign(db, campaign_id), settings, market_date)
+        day = start_campaign_day(
+            db,
+            _campaign(db, campaign_id),
+            settings,
+            market_date,
+            operator_acknowledgement=acknowledgement,
+        )
         return {"day_id": day.id, "state": day.state, "session_id": day.session_id}
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/campaigns/{campaign_id}/premarket")
+def premarket_check(
+    campaign_id: str,
+    market_date: date,
+    acknowledgement: str,
+    db: Db,
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    return evaluate_campaign_readiness(
+        db,
+        _campaign(db, campaign_id),
+        settings,
+        market_date,
+        operator_acknowledgement=acknowledgement,
+    )
 
 
 @router.post("/campaigns/{campaign_id}/days/eod", dependencies=[Depends(require_api_key)])
 def run_daily_eod(
     campaign_id: str,
     market_date: date,
+    backup_evidence: BackupEvidence,
     db: Db,
     settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
@@ -152,6 +197,15 @@ def run_daily_eod(
     if day is None:
         raise HTTPException(404, "Campaign day not found")
     try:
+        if campaign.evidence_class == "real_market":
+            return complete_real_market_day(
+                db,
+                campaign,
+                day,
+                settings,
+                backup_evidence=backup_evidence.model_dump(),
+                evidence_root=Path(__file__).resolve().parents[3] / "reports" / "real_market",
+            )
         return complete_campaign_day(db, campaign, day, settings)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -422,7 +476,15 @@ def operations_summary(db: Db) -> dict[str, Any]:
         select(ValidationCampaign)
         .where(
             ValidationCampaign.state.in_(
-                ["active", "paused", "degraded", "reconciliation_required"]
+                [
+                    "configured",
+                    "awaiting_data",
+                    "ready",
+                    "active",
+                    "paused",
+                    "degraded",
+                    "reconciliation_required",
+                ]
             )
         )
         .order_by(ValidationCampaign.updated_at.desc())
@@ -447,6 +509,12 @@ def operations_summary(db: Db) -> dict[str, Any]:
     ).all()
     report = campaign_summary(db, campaign) if campaign else None
     latest_backup = day.summary.get("backup") if day else None
+    qualification = (
+        calculate_qualification(db, campaign.id, qualification_scope="real_market")
+        if campaign and campaign.evidence_class == "real_market"
+        else None
+    )
+    reference = derive_portfolio(db, account_label="reference")
     return {
         "current_campaign": campaign_view(campaign) if campaign else None,
         "current_session": {
@@ -467,6 +535,26 @@ def operations_summary(db: Db) -> dict[str, Any]:
         "strategy_versions": campaign.approved_strategies if campaign else [],
         "drawdown": report["cumulative"]["maximum_drawdown"] if report else None,
         "backup_status": latest_backup,
+        "qualification": {
+            "accepted": qualification.counts.get("qualifying_days", 0),
+            "target": qualification.target_days,
+            "remaining": qualification.remaining_qualifying_days,
+            "failure_reasons": qualification.failure_reasons,
+        }
+        if qualification
+        else {
+            "accepted": 0,
+            "target": 60,
+            "remaining": 60,
+            "failure_reasons": ["no_real_market_campaign"],
+        },
+        "reference_portfolio": {
+            "holdings": len(reference.holdings),
+            "cash": str(reference.cash),
+            "total_cost": str(reference.total_cost),
+            "read_only": True,
+            "paper_holdings_affected": False,
+        },
         "audit": audit_status(db),
         "unresolved_incidents": [
             {

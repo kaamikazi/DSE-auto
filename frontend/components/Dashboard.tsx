@@ -58,6 +58,8 @@ interface OperationsSummary {
   strategy_versions: string[];
   drawdown: number | null;
   backup_status: { successful?: boolean; sha256?: string } | null;
+  qualification: { accepted: number; target: number; remaining: number; failure_reasons: string[] };
+  reference_portfolio: { holdings: number; cash: string; total_cost: string; read_only: boolean; paper_holdings_affected: boolean };
   audit: { canonical_valid?: boolean };
   unresolved_incidents: { id: string; type: string; severity: string; state: string }[];
   observability: {
@@ -108,7 +110,7 @@ interface InfrastructureSummary {
   postgresql_migration: { status?: string; at_head?: boolean; current_revision?: string | null; expected_revision?: string | null } | null;
 }
 
-const importAttestation = "I confirm this file represents the stated market date and source.";
+const importAttestation = "I confirm this file represents the stated DSE market date and source, and I understand it is operator-attested rather than exchange-verified.";
 
 const money = (value: string | number | null | undefined) =>
   value == null ? "৳0" : `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
@@ -129,6 +131,8 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [importDate, setImportDate] = useState("");
   const [attested, setAttested] = useState(false);
   const [previewBatch, setPreviewBatch] = useState<string | null>(null);
+  const [marketDate, setMarketDate] = useState(new Date().toISOString().slice(0, 10));
+  const [operatorAcknowledgement, setOperatorAcknowledgement] = useState("");
 
   // Polling data every 3 seconds for real-time status
   useEffect(() => {
@@ -236,6 +240,26 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
       setMessage(`${label} failed: ${err}`);
     }
     setTimeout(() => setMessage(null), 5000);
+  };
+
+  const runCampaignAction = async (action: "premarket" | "start") => {
+    const campaignId = operations?.current_campaign?.id;
+    if (!campaignId || !marketDate || operatorAcknowledgement.trim().length < 12) {
+      setMessage("Campaign, market date, and a meaningful operator acknowledgement are required.");
+      return;
+    }
+    if (action === "start" && !operatorKey) {
+      setMessage("Enter the operator API key before starting a paper session.");
+      return;
+    }
+    const query = new URLSearchParams({ market_date: marketDate, acknowledgement: operatorAcknowledgement });
+    const response = await fetch(`${API_URL}/campaigns/${campaignId}/${action === "premarket" ? "premarket" : "days/start"}?${query}`, {
+      method: action === "start" ? "POST" : "GET",
+      headers: action === "start" ? { "X-API-Key": operatorKey } : undefined
+    });
+    const data = await response.json().catch(() => ({}));
+    if (action === "premarket" && response.ok) setReadiness(data);
+    setMessage(response.ok ? `${action === "premarket" ? "Pre-market" : "Paper session start"}: ${data.ready === false ? "BLOCKED" : data.state ?? "completed"}` : `Action blocked: ${data.detail ?? response.statusText}`);
   };
 
   const providerInfo = health.provider as {
@@ -374,12 +398,20 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
               ["Audit health", operations?.audit?.canonical_valid ? "CANONICAL / VALID" : "BLOCKED"],
               ["Open incidents", String(operations?.unresolved_incidents.length ?? 0)],
               ["Campaign drawdown", operations?.drawdown == null ? "No evidence" : `${(operations.drawdown * 100).toFixed(2)}%`],
-              ["Latest backup", operations?.backup_status?.successful ? "VERIFIED" : "NOT RECORDED"]
+              ["Latest backup", operations?.backup_status?.successful ? "VERIFIED" : "NOT RECORDED"],
+              ["Real-market qualification", operations ? `${operations.qualification.accepted}/${operations.qualification.target} accepted` : "0/60 real-market qualifying days"],
+              ["Reference portfolio", operations ? `${operations.reference_portfolio.holdings} holdings · read-only` : "Not imported"]
             ].map(([label, value]) => <div key={label} className="rounded-lg border border-line bg-[#0f192b] p-3"><p className="text-slate-500">{label}</p><p className="mt-1 font-mono text-slate-200 break-words">{value}</p></div>)}
           </div>
           <div className="mt-4 rounded-lg border border-line bg-[#0f192b] p-3 text-xs">
             <p className="text-slate-500">Approved strategy versions</p>
             <p className="mt-1 font-mono text-cyan">{operations?.strategy_versions.join(", ") || "No governed strategies active"}</p>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <input aria-label="Campaign market date" type="date" value={marketDate} onChange={event => setMarketDate(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
+            <input aria-label="Operator acknowledgement" value={operatorAcknowledgement} onChange={event => setOperatorAcknowledgement(event.target.value)} placeholder="Operator acknowledgement (recorded in evidence)" className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
+            <button onClick={() => runCampaignAction("premarket")} className="rounded border border-cyan/30 py-2 text-xs text-cyan">RUN PRE-MARKET GATE</button>
+            <button disabled={!readiness?.ready} onClick={() => runCampaignAction("start")} className="rounded border border-emerald-500/30 py-2 text-xs text-emerald-300 disabled:opacity-30">START PAPER SESSION</button>
           </div>
           {operations?.unresolved_incidents.length ? <div className="mt-3 space-y-2">{operations.unresolved_incidents.slice(0, 4).map(incident => <div key={incident.id} className="rounded border border-red-500/20 bg-red-500/[.05] px-3 py-2 text-xs text-red-300">{incident.severity.toUpperCase()} · {incident.type} · {incident.state}</div>)}</div> : null}
         </article>
@@ -419,7 +451,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
           <p className="text-xs text-slate-500">Preview → operator approval → activation; raw file retained immutably</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <input aria-label="Operator API key" type="password" value={operatorKey} onChange={event => setOperatorKey(event.target.value)} placeholder="Operator API key (never stored)" className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
-            <select value={importKind} onChange={event => setImportKind(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs"><option value="quote">Quote CSV</option><option value="ohlcv">OHLCV CSV</option><option value="dsex">DSEX CSV</option></select>
+            <select value={importKind} onChange={event => setImportKind(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs"><option value="quote">Quote CSV</option><option value="ohlcv">OHLCV CSV</option><option value="dsex">DSEX CSV</option><option value="corporate_action">Corporate actions</option><option value="news">Price-sensitive news</option><option value="suspension">Suspensions</option><option value="trading_status">Trading status</option></select>
             <input aria-label="Market date" type="date" value={importDate} onChange={event => setImportDate(event.target.value)} className="rounded border border-line bg-[#0f192b] px-3 py-2 text-xs" />
             <input aria-label="CSV file" type="file" accept=".csv,text/csv" onChange={event => setImportFile(event.target.files?.[0] ?? null)} className="rounded border border-dashed border-cyan/30 bg-[#0f192b] px-3 py-2 text-xs" />
           </div>
