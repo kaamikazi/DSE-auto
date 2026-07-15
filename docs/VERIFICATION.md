@@ -225,3 +225,25 @@ Operational SQLite and the exercised PostgreSQL copy both ended with valid canon
 The prior B2 and B2-rerun paging failures used a misleading project-defined sum of Windows `PageReadsPersec + PageWritesPersec`. The rerun's 184.75/s mean was dominated by one 2,922 startup sample; the other samples were zero except 19 and 15. That counter did not distinguish file-backed hard faults from pagefile activity and produced no corresponding RAM, pagefile, disk, process, database, or audit consequence.
 
 The old B2 result is now classified **measurement-invalid / blocked pending rerun**, not passed. The corrected diagnostic separates Windows faults, pages input, read operations, pagefile usage, disk latency/queue, available memory, commit headroom, scheduler lag, and worker heartbeat delay; excludes a 120-second startup warm-up; and requires sustained paging plus a consequence. Focused paging-analysis tests passed. See `PAGING_MEASUREMENT_AUDIT.md`.
+## Milestone 10 real-market paper operations — 2026-07-16
+
+Safety remained `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_ADAPTER=disabled`. No real campaign or real-market day was created.
+
+| Verification | Result |
+| --- | --- |
+| Authorized audit recovery | PASS: 47 legacy records and 3 branches preserved; canonical chain `19c929c6-bc4c-4721-ab3a-07eaad4fd106` valid |
+| Archive linkage | PASS: `E:\data\audit_archives\legacy_audit_20260715T171813Z.json`, SHA-256 `58b36eda38e2beae310a083e412388069d281f3ee93b485b4854f82e9ab71e88` |
+| Source backup | PASS: retained hash `BD17B5D5FF3383DAE90653C26F3C889CFD963FFB07CB6F7E24B19EF13F77ACC9`; isolated restore contained 47 events and zero canonical chains |
+| Post-recovery backup | PASS: isolated restore contained 47 legacy events, 1 canonical event, and 1 active chain; SHA-256 `E49A3643FCC093F856E0A2520FE9D5A4C1859CAC9CD56937CAA76320C4E53166` |
+| Focused Milestone 10 tests | PASS: 9 tests covering intake, EOD, review, weekly reporting, portfolio isolation, credentials, and qualification exclusion |
+| Full backend and integrations | PASS: 153 tests; real PostgreSQL clean upgrade/downgrade/re-upgrade and Redis delivery included |
+| Python quality | PASS: Ruff format/lint across 115 files; strict mypy across 91 sources |
+| Alembic | PASS: single `0009` head/current; PostgreSQL migration cycle also passed in the integration suite |
+| PowerShell | PASS: 36 scripts parsed |
+| Frontend | PASS: `npm ci`, TypeScript, ESLint, and Next.js production build |
+| Dependencies and secrets | PASS: npm audit 0 vulnerabilities; pip-audit no known vulnerabilities; tracked secret scan clean |
+| Five-day dry-run | PASS: deterministic isolated workflow, 5 synthetic/test days, explicitly 0 real-market qualifying days; evidence SHA-256 `aec36260ac4302dce47587cf068c952551da0b9e7c344e20f49ae748142f883b` |
+| Provider diagnostics | BLOCKED as designed: bdshare TLS/DNS unavailable and exchange timestamps unsupported; bdfinance published runtime unavailable |
+| Qualification | `0/60 real-market qualifying days`; no genuine reviewed day exists |
+
+The archived-history authorization is recorded by event `f5102486-9f33-446e-a46d-845e5e550e44`, integrity hash `8004da153fe17401a9226a8a05c19f561d701340e0d0e07a142d30205861a4ca`. Its zero predecessor anchors the single canonical chain to the archive hash stored in the chain and initialization event.

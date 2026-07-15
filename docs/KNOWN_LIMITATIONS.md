@@ -88,3 +88,12 @@
 - The preserved run is not retroactively accepted. B2 remains blocked until a new 120-second-warm-up plus 600-second-steady-state observation uses the corrected counters.
 - Windows hard-fault disk reads can be executable, DLL, mapped-file, or pagefile backed. The available counters do not directly attribute every input page to `pagefile.sys`.
 - The corrected decision therefore requires sustained hard-fault reads plus memory, pagefile, disk, scheduler, heartbeat, process, or database impact.
+## Milestone 10 limitations
+
+- Real-market qualification is `0/60`. The five-day workflow dry-run is synthetic/test evidence and is permanently excluded.
+- No licensed provider currently passes. bdshare fails verified TLS/DNS access and cannot supply a trustworthy exchange timestamp; the published bdfinance runtime is unavailable. Operator-attested reviewed files are supported but none were supplied for an actual session.
+- No real DSE campaign has been created or started. EOD, review, and weekly workflows are implementation/test evidence only until genuine daily files and a human reviewer are available.
+- Reference's portfolio workflow is test-verified, but no actual real-account statement was imported. It remains read-only and isolated from paper holdings.
+- PostgreSQL and Redis integration tests passed, but this milestone did not rerun Milestone 9's resource-intensive distributed B2/campaign exercises.
+- Market rules, fee assumptions, risk thresholds, execution/slippage assumptions, licensed data rights, independent monitoring, encrypted backup key management, legal/compliance approval, and official broker documentation still require independent approval before any future real-money design.
+- Live execution remains absent and disabled. No broker login, password, PIN, OTP, CAPTCHA, Selenium, browser automation, unofficial endpoint, AI approval, or live order path was added.

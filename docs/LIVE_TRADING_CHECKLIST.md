@@ -89,3 +89,14 @@ Milestone 8 does not add or authorize live execution. `TRADING_MODE=paper`, `LIV
 - [ ] Accelerated 3-day then 10-day distributed infrastructure campaign passes; this would still not be real-market evidence.
 - [ ] The 3 GiB distributed-runtime post-start memory gate passes and worker/restart verification completes.
 - [ ] The 4 GiB distributed-campaign gate passes; accelerated infrastructure validation remains non-real-market evidence.
+## Milestone 10 real-market paper evidence
+
+- [x] Historical 47-event/3-branch evidence archived unchanged and hash-linked to one valid canonical chain.
+- [x] Strict operator-attested daily intake, rollback, raw retention, and timestamp provenance implemented.
+- [x] PostgreSQL/Redis-aware pre-market gate, verified-backup EOD, human review, weekly reporting, and qualification tracking implemented.
+- [x] real portfolio onboarding remains read-only, credential-free, reversible, and isolated from paper orders.
+- [x] Five-day operations dry-run completed and correctly counted as zero real-market days.
+- [ ] Obtain and certify a licensed DSE source, or supply genuinely reviewed operator-attested daily files.
+- [ ] Create the actual 60-day campaign and collect 60 accepted genuine days; current status is `0/60`.
+- [ ] Independently approve rule, fee, risk, liquidity, slippage, legal, security, alerting, recovery, and access controls.
+- [ ] Design and review any future live system as a separate project. This repository's broker adapter remains disabled.
