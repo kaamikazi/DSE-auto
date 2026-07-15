@@ -255,6 +255,8 @@ def promote_strategy(
     if target_state not in STRATEGY_STATES:
         raise ValueError("Unknown strategy lifecycle state")
     if target_state in {"paper_candidate", "paper_active"}:
+        if registration.evidence.get("promotion_authorized") is False:
+            raise ValueError("Strategy promotion is explicitly not authorized")
         missing = sorted(PROMOTION_EVIDENCE - registration.evidence.keys())
         if missing:
             raise ValueError(f"Strategy promotion evidence missing: {missing}")
