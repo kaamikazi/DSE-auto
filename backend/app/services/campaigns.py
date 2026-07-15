@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.brokers.paper import PaperBroker
 from app.core.config import Settings
+from app.core.database import database_health_metadata
 from app.data.providers import create_provider
 from app.models import (
     CampaignDay,
@@ -27,6 +28,7 @@ from app.models import (
     RiskState,
     Transaction,
     ValidationCampaign,
+    WorkerHeartbeat,
 )
 from app.services.audit import append_audit, audit_status, verify_audit_chain
 from app.services.backups import backup_database
@@ -34,29 +36,35 @@ from app.services.campaign_analytics import campaign_metrics
 from app.services.events import emit_event
 from app.services.governance import strategy_by_reference
 from app.services.incidents import open_incident
+from app.services.task_queue import create_broker
 
 CAMPAIGN_STATES = {
     "configured",
+    "awaiting_data",
+    "ready",
     "active",
     "paused",
     "degraded",
     "reconciliation_required",
     "completed",
-    "failed",
+    "invalidated",
     "archived",
 }
 CONTROLLING_STATES = {"active", "paused", "degraded", "reconciliation_required"}
 TRANSITIONS = {
-    "configured": {"active", "failed", "archived"},
-    "active": {"paused", "degraded", "reconciliation_required", "completed", "failed"},
-    "paused": {"active", "reconciliation_required", "completed", "failed"},
-    "degraded": {"active", "paused", "reconciliation_required", "failed"},
-    "reconciliation_required": {"active", "failed"},
+    "configured": {"awaiting_data", "ready", "active", "invalidated", "archived"},
+    "awaiting_data": {"ready", "invalidated", "archived"},
+    "ready": {"active", "awaiting_data", "invalidated", "archived"},
+    "active": {"paused", "degraded", "reconciliation_required", "completed", "invalidated"},
+    "paused": {"active", "reconciliation_required", "completed", "invalidated"},
+    "degraded": {"active", "paused", "reconciliation_required", "invalidated"},
+    "reconciliation_required": {"active", "invalidated"},
     "completed": {"archived"},
-    "failed": {"archived"},
+    "invalidated": {"archived"},
     "archived": set(),
 }
 ACTIVE_ORDER_STATES = {"proposed", "awaiting_approval", "approved", "submitted", "partially_filled"}
+DEFAULT_RECOVERY_DIR = Path(__file__).resolve().parents[3] / "reports" / "recovery"
 
 
 def campaign_view(campaign: ValidationCampaign) -> dict[str, Any]:
@@ -121,10 +129,20 @@ def create_campaign(
         if provider_certification_id
         else None
     )
-    if evidence_class == "real_market" and (
-        certification is None or certification.status != "passed"
+    operator_attested_allowed = bool(data_source_policy.get("allow_operator_attested"))
+    if evidence_class == "real_market" and not (
+        (certification is not None and certification.status == "passed")
+        or operator_attested_allowed
     ):
-        raise ValueError("Real-market campaigns require a passing licensed-provider certification")
+        raise ValueError(
+            "Real-market campaigns require a passing licensed provider or an explicit "
+            "operator-attested-file policy"
+        )
+    if (
+        evidence_class == "real_market"
+        and int(data_source_policy.get("qualification_target_days", 60)) != 60
+    ):
+        raise ValueError("Real-market campaign qualification target must be 60 days")
     rule_set = db.get(MarketRuleSet, active_rule_set_id)
     fee_profile = db.get(FeeProfile, active_fee_profile_id)
     if rule_set is None or rule_set.verification_status == "deprecated":
@@ -184,6 +202,8 @@ def transition_campaign(
     if target_state not in CAMPAIGN_STATES or target_state not in TRANSITIONS[campaign.state]:
         raise ValueError(f"Invalid campaign transition {campaign.state} -> {target_state}")
     if target_state == "active":
+        if campaign.evidence_class == "real_market" and campaign.state != "ready":
+            raise ValueError("Real-market campaign must pass through ready before activation")
         controlling = db.scalar(
             select(ValidationCampaign).where(
                 ValidationCampaign.account_id == campaign.account_id,
@@ -254,7 +274,8 @@ def evaluate_campaign_readiness(
     settings: Settings,
     market_date: date,
     *,
-    backup_dir: Path = Path("../data/backups"),
+    backup_dir: Path = DEFAULT_RECOVERY_DIR,
+    operator_acknowledgement: str | None = None,
 ) -> dict[str, Any]:
     audit = audit_status(db)
     latest_job = db.scalar(select(JobExecution).order_by(JobExecution.started_at.desc()).limit(1))
@@ -269,6 +290,7 @@ def evaluate_campaign_readiness(
             ImportBatch.status == "activated",
         )
     ).all()
+    import_kinds = {batch.import_kind for batch in imports}
     provenances = {
         "operator_attested" for batch in imports if batch.operator_attestation is not None
     }
@@ -300,27 +322,83 @@ def evaluate_campaign_readiness(
     }
     required_rank = trust_rank[campaign.timestamp_trust_requirement]
     trust_ok = any(trust_rank.get(item, 0) >= required_rank for item in provenances)
-    backups = list(backup_dir.glob("dse_autotrader_backup_*.db"))
+    backup_candidates = [
+        *backup_dir.glob("*.dump"),
+        *backup_dir.glob("dse_autotrader_backup_*.db"),
+    ]
+    now = datetime.now(UTC)
+    fresh_backups = [
+        path
+        for path in backup_candidates
+        if now - datetime.fromtimestamp(path.stat().st_mtime, UTC) <= timedelta(hours=24)
+    ]
+    database_health = database_health_metadata(db)
+    broker_health = create_broker(settings).health()
     weekly_days = set(rule_set.rules.get("weekly_trading_days", [])) if rule_set else set()
     calendar_ok = market_date.strftime("%A").lower() in {str(day).lower() for day in weekly_days}
-    reconciliation = PaperBroker(db).reconcile()
+    try:
+        reconciliation = PaperBroker(db).reconcile()
+    except Exception as exc:
+        reconciliation = {"healthy": False, "error": str(exc)}
+    unresolved_critical = db.scalars(
+        select(OperationalIncident).where(
+            OperationalIncident.campaign_id == campaign.id,
+            OperationalIncident.severity == "critical",
+            OperationalIncident.state.not_in(("resolved",)),
+        )
+    ).all()
+    worker = db.scalar(select(WorkerHeartbeat).where(WorkerHeartbeat.state == "active").limit(1))
+    reviewer = campaign.daily_reviewer_assignments.get(
+        market_date.isoformat(), campaign.daily_reviewer_assignments.get("default")
+    )
+    required_kinds = set(
+        campaign.data_source_policy.get("required_daily_kinds", ["quote", "ohlcv", "dsex"])
+    )
     checks: dict[str, dict[str, Any]] = {
         "audit": {"passed": bool(audit.get("canonical_valid")), "detail": audit},
-        "backup": {"passed": bool(backups), "count": len(backups)},
+        "database": {
+            "passed": bool(database_health.get("healthy"))
+            and database_health.get("dialect") == "postgresql",
+            "detail": database_health,
+        },
+        "redis": {
+            "passed": bool(broker_health.get("healthy"))
+            and broker_health.get("backend") == "redis",
+            "detail": broker_health,
+        },
+        "backup": {
+            "passed": bool(fresh_backups),
+            "fresh_count": len(fresh_backups),
+            "paths": [str(path) for path in fresh_backups],
+            "maximum_age_hours": 24,
+        },
         "provider_or_import": {
-            "passed": bool(imports) or provider_ready,
+            "passed": required_kinds.issubset(import_kinds) or provider_ready,
             "activated_batches": len(imports),
+            "required_kinds": sorted(required_kinds),
+            "available_kinds": sorted(import_kinds),
             "provider": provider_detail,
         },
         "timestamp_trust": {"passed": trust_ok, "available": sorted(provenances)},
         "calendar": {"passed": calendar_ok, "market_date": market_date.isoformat()},
         "scheduler": {"passed": latest_job is not None and latest_job.status != "failed"},
+        "worker": {"passed": worker is not None, "worker_id": worker.worker_id if worker else None},
         "emergency_stop": {
             "passed": risk is not None and risk.state == "healthy",
             "state": risk.state if risk else "missing",
         },
         "reconciliation": {"passed": bool(reconciliation["healthy"]), "detail": reconciliation},
         "campaign": {"passed": campaign.state == "active", "state": campaign.state},
+        "critical_incidents": {
+            "passed": not unresolved_critical,
+            "count": len(unresolved_critical),
+        },
+        "reviewer_assignment": {"passed": bool(reviewer), "reviewer": reviewer},
+        "operator_acknowledgement": {
+            "passed": bool(operator_acknowledgement and len(operator_acknowledgement.strip()) >= 12)
+            if campaign.evidence_class == "real_market"
+            else True,
+        },
         "governance": {"passed": governed, "failures": governance_failures},
         "rules_and_fees": {"passed": rule_set is not None and fee_profile is not None},
         "paper_safety": {
@@ -342,8 +420,9 @@ def start_campaign_day(
     settings: Settings,
     market_date: date,
     *,
-    backup_dir: Path = Path("../data/backups"),
+    backup_dir: Path = DEFAULT_RECOVERY_DIR,
     readiness_override: dict[str, Any] | None = None,
+    operator_acknowledgement: str | None = None,
 ) -> CampaignDay:
     if campaign.state != "active":
         raise ValueError("Campaign must be active before a daily session can start")
@@ -354,7 +433,12 @@ def start_campaign_day(
     ):
         raise ValueError("Campaign day already exists")
     readiness = readiness_override or evaluate_campaign_readiness(
-        db, campaign, settings, market_date, backup_dir=backup_dir
+        db,
+        campaign,
+        settings,
+        market_date,
+        backup_dir=backup_dir,
+        operator_acknowledgement=operator_acknowledgement,
     )
     if not readiness.get("ready"):
         campaign.state = "degraded"
@@ -393,7 +477,13 @@ def start_campaign_day(
         session_id=session.id,
         state="market_open",
         premarket_completed=True,
-        summary={"premarket": readiness, "skipped_signals": [], "paper_only": True},
+        summary={
+            "premarket": readiness,
+            "skipped_signals": [],
+            "paper_only": True,
+            "operator_acknowledgement": operator_acknowledgement,
+            "synthetic_or_accelerated": False,
+        },
         started_at=now,
     )
     db.add(day)
@@ -482,6 +572,7 @@ def complete_campaign_day(
     *,
     evidence_dir: Path = Path("../reports/campaigns"),
     backup_dir: Path = Path("../data/backups"),
+    backup_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if day.campaign_id != campaign.id or day.eod_completed:
         raise ValueError("Campaign day is mismatched or already completed")
@@ -507,7 +598,9 @@ def complete_campaign_day(
     counts = _daily_counts(db, campaign.id, day.market_date)
     backup: dict[str, Any]
     try:
-        backup = backup_database(db, settings, backup_dir)
+        backup = backup_override or backup_database(db, settings, backup_dir)
+        if not backup.get("successful"):
+            raise ValueError("Backup evidence is not successful")
     except Exception as exc:
         campaign.state = "degraded"
         day.state = "backup_failed"

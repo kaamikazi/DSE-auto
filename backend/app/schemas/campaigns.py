@@ -28,6 +28,13 @@ class CampaignCreate(BaseModel):
     daily_reviewer_assignments: dict[str, str] = Field(default_factory=dict)
 
 
+class BackupEvidence(BaseModel):
+    successful: bool
+    restore_verified: bool
+    path: str = Field(min_length=1)
+    sha256: str = Field(min_length=64, max_length=64)
+
+
 class RuleSetCreate(BaseModel):
     version: str = Field(min_length=1, max_length=32)
     effective_date: date

@@ -60,6 +60,11 @@ def calculate_qualification(
     rejected = [
         day for day in completed if reviews.get(day.id) and reviews[day.id].state == "rejected"
     ]
+    concerns = [
+        day
+        for day in completed
+        if reviews.get(day.id) and reviews[day.id].state == "concerns_found"
+    ]
     rerun = [
         day
         for day in completed
@@ -81,17 +86,25 @@ def calculate_qualification(
         and day.market_date in quality_dates
     ]
     if qualification_scope == "real_market":
+        licensed_provider = bool(campaign and campaign.provider_certification_id)
+        attested_policy = bool(
+            campaign and campaign.data_source_policy.get("allow_operator_attested")
+        )
         real_market_eligible = bool(
             campaign
             and campaign.evidence_class == "real_market"
-            and campaign.provider_certification_id
+            and (licensed_provider or attested_policy)
         )
         qualifying_days = [
             day
             for day in qualifying_days
             if real_market_eligible
             and day.evidence_class == "real_market"
-            and bool(day.summary.get("provider_certified"))
+            and bool(day.summary.get("real_market_eligible"))
+            and not bool(day.summary.get("synthetic_or_accelerated"))
+            and day.summary.get("timestamp_provenance")
+            in {"operator_attested", "exchange_verified"}
+            and all(bool(value) for value in day.summary.get("mandatory_evidence", {}).values())
         ]
     unresolved_critical = list(
         db.scalars(
@@ -108,6 +121,7 @@ def calculate_qualification(
         "reviewed_days": len(reviewed),
         "accepted_days": len(accepted),
         "rejected_days": len(rejected),
+        "concerns_found_days": len(concerns),
         "missing_days": max(target_days - len(completed), 0),
         "rerun_required_days": len(rerun),
         "audit_valid_days": len(audit_valid),
@@ -140,10 +154,15 @@ def calculate_qualification(
         campaign is None or campaign.evidence_class != "real_market"
     ):
         failures.append("campaign_not_real_market")
-    if qualification_scope == "real_market" and (
-        campaign is None or not campaign.provider_certification_id
+    if (
+        qualification_scope == "real_market"
+        and campaign is not None
+        and not (
+            campaign.provider_certification_id
+            or campaign.data_source_policy.get("allow_operator_attested")
+        )
     ):
-        failures.append("licensed_provider_not_certified")
+        failures.append("approved_real_market_source_missing")
     remaining = max(target_days - len(qualifying_days), 0)
     if remaining:
         failures.append("qualification_target_not_met")
