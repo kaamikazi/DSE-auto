@@ -545,3 +545,133 @@ class LoginAttempt(Base):
     attempted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, index=True
     )
+
+
+class AuthoritativeEvidence(Base):
+    __tablename__ = "authoritative_evidence"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    category: Mapped[str] = mapped_column(String(64), index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    source_organization: Mapped[str] = mapped_column(String(255))
+    source_type: Mapped[str] = mapped_column(String(64))
+    source_reference: Mapped[str] = mapped_column(Text)
+    document_date: Mapped[date | None] = mapped_column(Date)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    review_date: Mapped[date | None] = mapped_column(Date, index=True)
+    collected_by: Mapped[str] = mapped_column(String(100))
+    reviewed_by: Mapped[str | None] = mapped_column(String(100))
+    reviewer_independence: Mapped[str] = mapped_column(String(32), default="unreviewed")
+    confidence: Mapped[str] = mapped_column(String(32), default="unknown")
+    verification_status: Mapped[str] = mapped_column(String(32), default="submitted", index=True)
+    extracted_claim: Mapped[str] = mapped_column(Text, default="")
+    affected_fields: Mapped[list[str]] = mapped_column(JSON, default=list)
+    file_hash: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
+    raw_file_path: Mapped[str | None] = mapped_column(Text)
+    original_filename: Mapped[str | None] = mapped_column(String(255))
+    media_type: Mapped[str | None] = mapped_column(String(100))
+    file_size: Mapped[int | None] = mapped_column(Integer)
+    source_description: Mapped[str] = mapped_column(Text, default="")
+    operator_attestation: Mapped[str] = mapped_column(Text, default="")
+    extraction: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GovernanceItemApproval(Base):
+    __tablename__ = "governance_item_approvals"
+    __table_args__ = (UniqueConstraint("approval_type", "draft_version", "item_key"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    approval_type: Mapped[str] = mapped_column(String(32), index=True)
+    draft_version: Mapped[str] = mapped_column(String(64), index=True)
+    item_key: Mapped[str] = mapped_column(String(100), index=True)
+    current_draft: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    proposed_value: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    conflicts: Mapped[list[str]] = mapped_column(JSON, default=list)
+    missing_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    verification_status: Mapped[str] = mapped_column(String(32), default="submitted", index=True)
+    approval_status: Mapped[str] = mapped_column(String(32), default="unapproved", index=True)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    operator_identity: Mapped[str | None] = mapped_column(String(100))
+    reviewer_identity: Mapped[str | None] = mapped_column(String(100))
+    reviewer_independence: Mapped[str] = mapped_column(String(32), default="unreviewed")
+    conservative_fallback: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    decision_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    audit_event_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ReviewerInvitation(Base):
+    __tablename__ = "reviewer_invitations"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    reviewer_identity: Mapped[str] = mapped_column(String(100), index=True)
+    role: Mapped[str] = mapped_column(String(64))
+    access_scope: Mapped[list[str]] = mapped_column(JSON, default=list)
+    state: Mapped[str] = mapped_column(String(32), default="invited", index=True)
+    conflict_declaration: Mapped[str] = mapped_column(Text, default="")
+    independence: Mapped[str] = mapped_column(String(32), default="unassessed")
+    invited_by: Mapped[str] = mapped_column(String(100))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    audit_event_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewAssignment(Base):
+    __tablename__ = "review_assignments"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    invitation_id: Mapped[str] = mapped_column(ForeignKey("reviewer_invitations.id"), index=True)
+    subject_type: Mapped[str] = mapped_column(String(64), index=True)
+    subject_id: Mapped[str] = mapped_column(String(100), index=True)
+    evidence_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), default="assigned", index=True)
+    decision: Mapped[str | None] = mapped_column(String(32))
+    comments: Mapped[str] = mapped_column(Text, default="")
+    independence: Mapped[str] = mapped_column(String(32), default="unassessed")
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    audit_event_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ResearchDataset(Base):
+    __tablename__ = "research_datasets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(150), unique=True, index=True)
+    symbols: Mapped[list[str]] = mapped_column(JSON, default=list)
+    data_types: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    source_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    dataset_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    timestamp_trust: Mapped[str] = mapped_column(String(32))
+    raw_file_path: Mapped[str] = mapped_column(Text)
+    normalized_file_path: Mapped[str] = mapped_column(Text)
+    quality_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(32), default="submitted", index=True)
+    approved_by: Mapped[str | None] = mapped_column(String(100))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RiskCalibrationRun(Base):
+    __tablename__ = "risk_calibration_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    strategy_registration_id: Mapped[str] = mapped_column(String(36), index=True)
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    integrity_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="recommendations_only", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StrategyReadinessReport(Base):
+    __tablename__ = "strategy_readiness_reports"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    strategy_registration_id: Mapped[str] = mapped_column(String(36), index=True)
+    status: Mapped[str] = mapped_column(String(64), index=True)
+    checks: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    missing_items: Mapped[list[str]] = mapped_column(JSON, default=list)
+    report_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
