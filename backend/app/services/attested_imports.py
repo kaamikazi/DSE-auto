@@ -16,13 +16,27 @@ from app.models import ImportBatch, MarketBar, ValidationCampaign
 from app.services.audit import append_audit
 from app.services.events import emit_event
 
-ATTESTATION = "I confirm this file represents the stated market date and source."
-IMPORT_KINDS = {"quote", "ohlcv", "dsex"}
+ATTESTATION = (
+    "I confirm this file represents the stated DSE market date and source, and I understand "
+    "it is operator-attested rather than exchange-verified."
+)
+BAR_IMPORT_KINDS = {"quote", "ohlcv", "dsex"}
+REFERENCE_IMPORT_KINDS = {
+    "corporate_action",
+    "news",
+    "suspension",
+    "trading_status",
+}
+IMPORT_KINDS = BAR_IMPORT_KINDS | REFERENCE_IMPORT_KINDS
 SYMBOL_PATTERN = re.compile(r"^[A-Z0-9.-]{1,32}$")
 TEMPLATES = {
     "quote": "symbol,timestamp,last_price,volume,source\nGP,2026-07-13T10:30:00+06:00,250.00,10000,operator_file\n",
     "ohlcv": "symbol,timestamp,open,high,low,close,volume,source\nGP,2026-07-13T14:30:00+06:00,248.00,252.00,247.00,250.00,10000,operator_file\n",
     "dsex": "timestamp,index_value,volume,source\n2026-07-13T14:30:00+06:00,5200.00,1000000,operator_file\n",
+    "corporate_action": "symbol,timestamp,action_type,details,source\nGP,2026-07-13T14:30:00+06:00,dividend,Reviewed dividend reference,operator_file\n",
+    "news": "symbol,timestamp,reference,title,source\nGP,2026-07-13T14:30:00+06:00,https://example.invalid/reference,Reviewed price-sensitive news,operator_file\n",
+    "suspension": "symbol,timestamp,status,reason,source\nGP,2026-07-13T14:30:00+06:00,active,Reviewed suspension notice,operator_file\n",
+    "trading_status": "symbol,timestamp,status,reason,source\nGP,2026-07-13T14:30:00+06:00,open,Reviewed trading-status notice,operator_file\n",
 }
 
 
@@ -60,6 +74,25 @@ def _parse_rows(
             source = row.get("source", "")
             if not source:
                 raise ValueError("source is required")
+            if import_kind in REFERENCE_IMPORT_KINDS:
+                required = {
+                    "corporate_action": ("action_type", "details"),
+                    "news": ("reference", "title"),
+                    "suspension": ("status", "reason"),
+                    "trading_status": ("status", "reason"),
+                }[import_kind]
+                if any(not row.get(field) for field in required):
+                    raise ValueError(f"{import_kind} requires {', '.join(required)}")
+                valid.append(
+                    {
+                        "symbol": symbol,
+                        "timestamp": timestamp,
+                        "source": source,
+                        "record_type": import_kind,
+                        "payload": {field: row[field] for field in required},
+                    }
+                )
+                continue
             if import_kind == "quote":
                 close = Decimal(row["last_price"])
                 open_price = high = low = close
@@ -110,7 +143,7 @@ def preview_attested_import(
     campaign_id: str | None = None,
 ) -> dict[str, Any]:
     if import_kind not in IMPORT_KINDS:
-        raise ValueError("Import kind must be quote, ohlcv, or dsex")
+        raise ValueError(f"Import kind must be one of: {', '.join(sorted(IMPORT_KINDS))}")
     if operator_attestation.strip() != ATTESTATION:
         raise ValueError(f"Operator must confirm exactly: {ATTESTATION}")
     digest = hashlib.sha256(raw).hexdigest()
@@ -201,23 +234,24 @@ def activate_attested_import(
     if errors or hashlib.sha256(raw).hexdigest() != batch.source_hash:
         raise ValueError("Retained raw data failed revalidation")
     source = f"attested_csv:{batch.id}"
-    for row in rows:
-        db.add(
-            MarketBar(
-                timestamp=row["timestamp"],
-                symbol=row["symbol"],
-                open=row["open"],
-                high=row["high"],
-                low=row["low"],
-                close=row["close"],
-                volume=row["volume"],
-                source=source,
-                quality_status="valid",
-                timestamp_provenance="operator_attested",
-                import_batch_id=batch.id,
-                campaign_id=batch.campaign_id,
+    if batch.import_kind in BAR_IMPORT_KINDS:
+        for row in rows:
+            db.add(
+                MarketBar(
+                    timestamp=row["timestamp"],
+                    symbol=row["symbol"],
+                    open=row["open"],
+                    high=row["high"],
+                    low=row["low"],
+                    close=row["close"],
+                    volume=row["volume"],
+                    source=source,
+                    quality_status="valid",
+                    timestamp_provenance="operator_attested",
+                    import_batch_id=batch.id,
+                    campaign_id=batch.campaign_id,
+                )
             )
-        )
     batch.status = "activated"
     batch.activated_at = datetime.now(UTC)
     emit_event(
@@ -275,4 +309,4 @@ def import_template(import_kind: str) -> str:
     try:
         return TEMPLATES[import_kind]
     except KeyError as exc:
-        raise ValueError("Import kind must be quote, ohlcv, or dsex") from exc
+        raise ValueError(f"Import kind must be one of: {', '.join(sorted(IMPORT_KINDS))}") from exc
