@@ -1,5 +1,25 @@
 # Milestone 2 Verification Record
 
+## Milestone 9 corrected-B2 completion — 2026-07-15
+
+Verdict: **accelerated distributed paper-infrastructure verification passed; real-market and live-trading gates remain blocked**.
+
+| Verification | Result |
+| --- | --- |
+| Corrected B2 | PASS: 120 s warm-up + 612.4 s steady state; 5.187 GiB minimum available; 20.628 GiB minimum commit headroom; no sustained paging consequence, restart, OOM, loss, DB, or audit failure |
+| Distributed exercises | PASS: competition/overlap/idempotency, worker kill, stale worker/lease, dead-letter/replay, retry/backoff, PostgreSQL restart, reconciliation/audit |
+| Accelerated campaign | PASS: three-day gate and conditional ten-day extension; ten tasks succeeded once; one explicit rejected review; zero real-market days |
+| Backend/integrations | PASS: 144 tests with real `db_test` PostgreSQL and isolated Redis enabled |
+| Python quality | PASS: Ruff format/lint on 114 files; strict mypy on 88 application sources |
+| Alembic | PASS: PostgreSQL head, downgrade to `0007`, re-upgrade to `0009` |
+| Frontend | PASS: locked install, TypeScript, ESLint, production build, npm audit (0 vulnerabilities) |
+| Dependency/security | PASS after updating test-only pytest `8.4.2` to fixed `9.0.3`; all four Python locks audit clean; secret scan clean; no public binding default |
+| PowerShell | PASS: 34 scripts parsed |
+| PostgreSQL backup/restore | PASS after correcting binary transport: 103,704 bytes, 34 tables, restored audit valid; SHA-256 `6FB756BC73A09864BAAF1A299F5139F11EFBA02214FA99D1D35B8339084FF5B3` |
+| Recovery bundle | PASS: 535 audit records, hashes, SQLite integrity, canonical/legacy audit, campaign/qualification, locks, secret exclusion, and paper-only safety |
+
+The campaign-created dumps were subsequently found non-restorable because Windows PowerShell 5.1 transformed binary stdout. This is preserved as a failed backup sub-result; it does not invalidate the campaign's database, task, incident, reconciliation, or audit evidence. The corrected backup and isolated restore passed afterward.
+
 ## Verdict: PASS WITH LIMITATIONS
 
 Verified on 2026-07-12 with Python 3.12 and Node 24 on Windows.

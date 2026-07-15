@@ -1,5 +1,19 @@
 # Live Trading Checklist
 
+## Milestone 9 corrected-B2 closure
+
+- [x] Corrected two-worker B2 gate passed with separated warm-up/steady/shutdown measurement and multi-signal paging logic.
+- [x] Multi-worker competition, overlap/idempotency, worker kill, stale lease, dead-letter/replay, retry/backoff, and PostgreSQL-mid-task restart passed on real local containers.
+- [x] Accelerated three-day gate and conditional ten-day infrastructure campaign passed; this counts as zero real-market days.
+- [x] PostgreSQL binary backup/restore passed after the campaign exposed and preserved a PowerShell 5.1 transport defect.
+- [ ] Repeat PostgreSQL restore on an independent clean host with encrypted backup/key-management controls.
+- [ ] Certify a licensed DSE source with trustworthy exchange timestamps and sustained availability.
+- [ ] Complete at least 60 independently reviewed, representative real-market paper sessions.
+- [ ] Add multi-host database/queue failover and independent monitoring/alerting.
+- [ ] Obtain official broker permission, security/legal/compliance review, and design a separate live release.
+
+Milestone 9 remains paper-only. These infrastructure passes do not authorize or implement broker execution.
+
 Milestone 3 remains paper-only. Real money stays blocked until provider timestamp reliability, long-run evidence, reconciliation, fill assumptions, calendar governance, restore drills and soak failures receive independent review. Passing this checklist does not enable a broker adapter.
 
 Milestone 5 recovered canonical audit integrity and completed one imported-data paper session. Live trading is still blocked because public DSE acquisition lacks trustworthy exchange timestamps, bdfinance is unavailable, and sustained multi-week operational evidence has not been produced.

@@ -1,5 +1,15 @@
 # Known Limitations
 
+## Corrected-B2 completion limitations — 2026-07-15
+
+- The passed three/ten-day campaign is accelerated single-host infrastructure validation, not elapsed DSE sessions, representative market evidence, profitability evidence, or live-trading readiness.
+- Two workers, PostgreSQL, Redis, and a scheduler were verified together on this host; there is still no multi-host failover, PostgreSQL replica, Redis HA, or independent control plane.
+- Two initial competition harness attempts were aborted due verification-harness defects. Preserved evidence distinguishes them from the later valid pass.
+- Campaign checkpoint dumps were non-restorable because Windows PowerShell 5.1 converted binary stdout to UTF-16. Backup/restore scripts are corrected and a later isolated restore passed, but the original dump files remain invalid evidence.
+- The fresh PostgreSQL restore was local to the same Docker host, not a clean-machine or cross-host disaster-recovery rehearsal.
+- Dependency and secret scans are point-in-time. The test-only pytest pin required an advisory-driven update to 9.0.3 during final verification.
+- Public DSE provider timestamp trust, licensed feed certification, 60 independently reviewed real-market paper days, broker approval, legal/compliance, encrypted backups/KMS, and independent alerts remain unresolved.
+
 - **No Real-Money Broker Execution**: The system is strictly paper-trading only. The real-money broker adapter is completely inactive.
 - **Scraped Data Lack Timestamps**: The `bdshare` provider collects quotes via public web scraping, which lacks official exchange execution timestamps. Consequently, the system blocks live approvals when using `bdshare` in production to prevent stale-data slippage.
 - **Provider Package Availability**: The `bdfinance` provider is unavailable on the host workspace due to missing library installation. It dynamically reports as unavailable.

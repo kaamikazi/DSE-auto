@@ -1,5 +1,17 @@
 # Paging Measurement Audit
 
+## Corrected B2 rerun — 2026-07-15
+
+The corrected rerun passed after a 120-second warm-up and 612.4 seconds of steady-state observation. The exact topology was PostgreSQL, Redis, one scheduler, and two workers; API, `db_test`, frontend, reloaders, and watchers were absent.
+
+- Available memory started at 5.316 GiB, ended at 5.563 GiB, and never fell below 5.187 GiB.
+- Commit headroom never fell below 20.628 GiB; pagefile growth was 0.007 GiB.
+- `Page Faults/sec` was high (121,374.19 average; 189,142.35 peak), but `Pages Input/sec` and `Page Reads/sec` averaged 0.44 and peaked at 2. Sustained hard-fault reads were false.
+- Disk-read latency peaked at 0.56 ms, queue length at 0.01, scheduler lag at 0.958 seconds, and worker-heartbeat delay at 28.262 seconds.
+- No restart, OOM, task loss, database failure, or audit failure occurred.
+
+This is the intended multi-signal outcome: high aggregate faults without paging pressure or operational degradation are not thrashing. Raw SHA-256: `CCA5C08999BDD43A2A985AE21AF3A59D44371E670C315C5F07D7131E12462BB2`; result SHA-256: `20E85EAA2284F7B417171D82FC878FD7942DAF221FA59F7E5D58D0EFEAE18A77`. Shutdown was captured separately with SHA-256 `C37066E35654A1396ED8A65D6EA8BE4E5742F4CC1E9BCE8D5CA4C6B4DA9A456C`.
+
 Status: **measurement audit completed; B2 remains blocked pending a new run**. No worker, campaign, or outage exercise was run during this audit.
 
 ## Original measurement
