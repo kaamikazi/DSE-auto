@@ -110,6 +110,18 @@ interface InfrastructureSummary {
   postgresql_migration: { status?: string; at_head?: boolean; current_revision?: string | null; expected_revision?: string | null } | null;
 }
 
+interface PreCampaignGovernance {
+  evidence_registry: Record<string, number>;
+  rule_evidence: { total: number; approved: number };
+  fee_evidence: { total: number; approved: number };
+  risk_calibration: { total: number; approved: number };
+  reviewer_assignments: { total: number; non_independent: number };
+  research_datasets: { total: number; approved_for_research: number };
+  strategy_promotion_readiness: string;
+  campaign: { created: boolean; active: boolean; qualification: string };
+  audit_valid: boolean;
+}
+
 const importAttestation = "I confirm this file represents the stated DSE market date and source, and I understand it is operator-attested rather than exchange-verified.";
 
 const money = (value: string | number | null | undefined) =>
@@ -125,6 +137,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [operations, setOperations] = useState<OperationsSummary | null>(null);
   const [imports, setImports] = useState<DataImport[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfrastructureSummary | null>(null);
+  const [governance, setGovernance] = useState<PreCampaignGovernance | null>(null);
   const [operatorKey, setOperatorKey] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importKind, setImportKind] = useState("quote");
@@ -138,7 +151,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes, governanceRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
@@ -146,7 +159,8 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
           fetch(`${API_URL}/paper-readiness?symbol=GP`),
           fetch(`${API_URL}/operations/summary`),
           fetch(`${API_URL}/data-imports`),
-          fetch(`${API_URL}/infrastructure/summary`)
+          fetch(`${API_URL}/infrastructure/summary`),
+          fetch(`${API_URL}/infrastructure/governance/pre-campaign`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
@@ -156,6 +170,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
         if (operationsRes.ok) setOperations(await operationsRes.json());
         if (importsRes.ok) setImports(await importsRes.json());
         if (infrastructureRes.ok) setInfrastructure(await infrastructureRes.json());
+        if (governanceRes.ok) setGovernance(await governanceRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -429,18 +444,26 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
       </section>
 
       <section className="rounded-xl border border-line bg-panel p-5">
-        <h2 className="font-semibold text-lg">Governance & Evidence Panels</h2>
-        <p className="text-xs text-slate-500">Read-only operational surfaces; mutations require an authenticated operator action</p>
+        <h2 className="font-semibold text-lg">Authoritative Evidence & Pre-Campaign Governance</h2>
+        <p className="text-xs text-slate-500">Read-only · missing, conflicting, expired and non-independent evidence fails closed</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-wide">
+          <span className="rounded border border-emerald-500/30 px-2 py-1 text-emerald-300">Approved {governance?.evidence_registry.verified ?? 0}</span>
+          <span className="rounded border border-amber-500/30 px-2 py-1 text-amber-300">Unapproved {(governance?.rule_evidence.total ?? 16) - (governance?.rule_evidence.approved ?? 0) + (governance?.fee_evidence.total ?? 12) - (governance?.fee_evidence.approved ?? 0) + (governance?.risk_calibration.total ?? 12) - (governance?.risk_calibration.approved ?? 0)}</span>
+          <span className="rounded border border-red-500/30 px-2 py-1 text-red-300">Conflicting {governance?.evidence_registry.conflicting ?? 0}</span>
+          <span className="rounded border border-red-500/30 px-2 py-1 text-red-300">Expired {governance?.evidence_registry.expired ?? 0}</span>
+          <span className="rounded border border-slate-500/30 px-2 py-1 text-slate-300">Missing {governance?.strategy_promotion_readiness === "evidence_incomplete" ? "YES" : "NO"}</span>
+          <span className="rounded border border-fuchsia-500/30 px-2 py-1 text-fuchsia-300">Non-independent {governance?.reviewer_assignments.non_independent ?? 0}</span>
+        </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            ["Market Rules", operations?.rule_set_version ?? "No active version", operations?.rule_set_status ?? "unavailable"],
-            ["Fee Profiles", operations?.fee_profile ?? "No active profile", "Conservative unknown-cost defaults"],
-            ["Strategy Governance", `${operations?.strategy_versions.length ?? 0} active versions`, "Manual promotion · automatic suspension"],
-            ["Incidents", `${operations?.unresolved_incidents.length ?? 0} unresolved`, "Audit-linked lifecycle and critical alerts"],
-            ["Daily Reports", operations?.current_session?.date ?? "No report date", "Snapshot · reconciliation · evidence"],
-            ["Weekly Reports", operations?.current_campaign?.name ?? "No campaign", "Five-session evidence windows"],
-            ["Data Imports", `${imports.length} recorded batches`, "Preview · hash · attestation · rollback"],
-            ["Daily Operations", operations?.market_state ?? "unavailable", "Pre-market · market · EOD · recovery"]
+            ["Evidence Registry", `${Object.values(governance?.evidence_registry ?? {}).reduce((sum, value) => sum + value, 0)} items`, "Submitted is not verified"],
+            ["Rule Evidence", `${governance?.rule_evidence.approved ?? 0}/${governance?.rule_evidence.total ?? 16} approved`, "Individual approval only · draft inactive"],
+            ["Fee Evidence", `${governance?.fee_evidence.approved ?? 0}/${governance?.fee_evidence.total ?? 12} approved`, "Unresolved components block activation"],
+            ["Risk Calibration", `${governance?.risk_calibration.approved ?? 0}/${governance?.risk_calibration.total ?? 12} approved`, "Recommendations never auto-approve"],
+            ["Reviewer Assignments", `${governance?.reviewer_assignments.total ?? 0} assigned`, `${governance?.reviewer_assignments.non_independent ?? 0} non-independent`],
+            ["Research Datasets", `${governance?.research_datasets.approved_for_research ?? 0}/${governance?.research_datasets.total ?? 0} approved`, "Research activation is not campaign activation"],
+            ["Strategy Promotion Readiness", governance?.strategy_promotion_readiness ?? "evidence_incomplete", "Manual review only · no automatic transition"],
+            ["Pre-Campaign Approval", governance?.campaign.qualification ?? "0/60", `Campaign ${governance?.campaign.created ? "created" : "missing"} · audit ${governance?.audit_valid ? "valid" : "invalid"}`]
           ].map(([title, value, note]) => <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-4"><p className="text-xs uppercase tracking-wider text-slate-500">{title}</p><p className="mt-2 text-sm font-semibold text-cyan">{value}</p><p className="mt-1 text-[11px] text-slate-500">{note}</p></article>)}
         </div>
       </section>

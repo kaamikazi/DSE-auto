@@ -28,6 +28,7 @@ from app.models import (
     TaskRecord,
     WorkerHeartbeat,
 )
+from app.services.authoritative_evidence import pre_campaign_state
 from app.services.data_quality import generate_data_quality_report
 from app.services.disaster_recovery import run_sqlite_disaster_recovery_exercise
 from app.services.events import replay_event
@@ -37,7 +38,7 @@ from app.services.qualification import calculate_qualification
 from app.services.risk_validation import validate_risk_controls
 from app.services.task_queue import create_broker
 
-router = APIRouter(prefix="/api/v1/infrastructure", tags=["infrastructure"])
+router = APIRouter(prefix="/infrastructure", tags=["infrastructure"])
 Db = Annotated[Session, Depends(get_db)]
 Operator = Annotated[Principal, Depends(require_operator)]
 Reviewer = Annotated[Principal, Depends(require_reviewer)]
@@ -211,6 +212,12 @@ def infrastructure_summary(db: Db) -> dict[str, Any]:
             for item in incidents
         ],
     }
+
+
+@router.get("/governance/pre-campaign")
+def governance_pre_campaign(db: Db) -> dict[str, Any]:
+    """Expose a read-only, fail-closed pre-campaign governance summary."""
+    return pre_campaign_state(db)
 
 
 @router.get("/workers", dependencies=[Depends(require_reviewer)])
