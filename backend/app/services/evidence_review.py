@@ -63,6 +63,9 @@ def submit_review(
     incidents_reviewed: list[str],
     comments: str,
     approval_decision: str,
+    review_checklist: dict[str, bool] | None = None,
+    concerns: list[str] | None = None,
+    linked_evidence_hashes: list[str] | None = None,
 ) -> EvidenceReview:
     if reviewer_role not in {"reviewer", "operator"}:
         raise PermissionError("Evidence decisions require reviewer or operator role")
@@ -78,6 +81,21 @@ def submit_review(
     }
     if not required <= {"pass", "concern", "fail", "not_applicable"}:
         raise ValueError("Review verdict must be pass, concern, fail, or not_applicable")
+    checklist = review_checklist or {}
+    if checklist and not all(checklist.values()):
+        raise ValueError("Every mandatory daily-review checklist item must be confirmed")
+    day = db.get(CampaignDay, review.campaign_day_id)
+    real_market_review = bool(day and day.evidence_class == "real_market")
+    if (
+        target_state == "accepted"
+        and real_market_review
+        and (
+            not checklist
+            or not linked_evidence_hashes
+            or review.evidence_pack_hash not in linked_evidence_hashes
+        )
+    ):
+        raise ValueError("Accepted review requires a complete checklist and linked evidence hash")
     previous = review.state
     review.state = target_state
     review.reviewer = reviewer
@@ -104,7 +122,13 @@ def submit_review(
             "evidence_pack_hash": review.evidence_pack_hash,
             "approval_decision": approval_decision,
         },
-        metadata={"reviewer_role": reviewer_role, "incidents_reviewed": incidents_reviewed},
+        metadata={
+            "reviewer_role": reviewer_role,
+            "incidents_reviewed": incidents_reviewed,
+            "review_checklist": checklist,
+            "concerns": concerns or [],
+            "linked_evidence_hashes": linked_evidence_hashes or [],
+        },
     )
     db.commit()
     return review

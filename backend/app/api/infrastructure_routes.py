@@ -308,6 +308,14 @@ def decide_review(
             incidents_reviewed=[str(item) for item in payload.get("incidents_reviewed", [])],
             comments=str(payload.get("comments", "")),
             approval_decision=str(payload.get("approval_decision", "")),
+            review_checklist={
+                str(key): bool(value)
+                for key, value in dict(payload.get("review_checklist", {})).items()
+            },
+            concerns=[str(item) for item in payload.get("concerns", [])],
+            linked_evidence_hashes=[
+                str(item) for item in payload.get("linked_evidence_hashes", [])
+            ],
         )
     except (PermissionError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
