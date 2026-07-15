@@ -1,5 +1,9 @@
 # Known Limitations
 
+## Authoritative evidence remains unavailable
+
+No authoritative DSE/broker/account evidence or approved real-market research dataset has been supplied. Registry and workflows are implemented, but all rule, fee, and risk matrices remain unapproved. Deterministic fixtures validate mechanics only and are neither real-market evidence nor profitability evidence. Operator reviewer's review is non-independent whenever he is also operator.
+
 ## Corrected-B2 completion limitations — 2026-07-15
 
 - The passed three/ten-day campaign is accelerated single-host infrastructure validation, not elapsed DSE sessions, representative market evidence, profitability evidence, or live-trading readiness.

@@ -1,5 +1,26 @@
 # Milestone 2 Verification Record
 
+## Milestone 10 authoritative evidence readiness
+
+Verification covers persistent evidence migrations, immutable intake, duplicate/hash/type checks, conflicts/expiry, item-level rule and fee decisions, risk calibration, reviewer conflicts, dataset provenance/quality/corporate actions, fail-closed strategy readiness, and no operational activation. External evidence is reported missing rather than fabricated. Final command evidence is recorded in the completion report and generated approval pack.
+
+Verified 2026-07-16:
+
+| Check | Result |
+|---|---|
+| Backend | 169 collected; 167 passed and 2 integration tests skipped |
+| Focused evidence/governance | 11 passed |
+| Ruff | Format and lint passed across 130 backend/new-generator files |
+| Strict mypy | 91 application sources plus the evidence generator passed |
+| Alembic | Clean `0009 -> 0010`, downgrade to `0009`, and re-upgrade to `0010` passed |
+| Frontend | `npm ci`, TypeScript, ESLint, and production build passed |
+| Dependency audit | npm: 0 vulnerabilities; pip-audit: no known vulnerabilities after updating local venv pip |
+| Security | Secret preflight returned zero findings |
+| Audit | Canonical chain valid; 16 canonical events; preserved 47-event/3-branch legacy archive unchanged |
+| Backup/restore | PostgreSQL revision `0010` restored into an isolated db_test database; 40 unapproved matrix rows and zero campaigns/orders/transactions |
+
+Post-migration backup: `reports/recovery/post_authoritative_evidence_20260716_013907.dump`, SHA-256 `CFE035778511DCEE7CAE24CA913D9AD7E8B8D16482A03221733BCDEB16DF6A02`.
+
 ## Milestone 9 corrected-B2 completion — 2026-07-15
 
 Verdict: **accelerated distributed paper-infrastructure verification passed; real-market and live-trading gates remain blocked**.

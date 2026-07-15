@@ -1,5 +1,16 @@
 # Live Trading Checklist
 
+## Authoritative evidence blockers
+
+- [ ] All 16 rules individually verified and approved in a new version.
+- [ ] All 12 fee components individually resolved and approved.
+- [ ] All 12 risk limits calibrated, independently reviewed, and approved.
+- [ ] Real-market dataset provenance and quality approved.
+- [ ] Independent strategy-specific review completed.
+- [ ] Separate strategy-promotion and operator approvals completed.
+
+These remain blockers. Live broker execution, credentials, OTP/CAPTCHA handling, and real-money authorization are not implemented.
+
 ## Milestone 9 corrected-B2 closure
 
 - [x] Corrected two-worker B2 gate passed with separated warm-up/steady/shutdown measurement and multi-signal paging logic.
