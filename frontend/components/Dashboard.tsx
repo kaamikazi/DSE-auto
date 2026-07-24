@@ -122,7 +122,33 @@ interface PreCampaignGovernance {
   audit_valid: boolean;
 }
 
+interface EvidenceWorkspaceSummary {
+  warning: string;
+  evidence_cases: Record<string, number>;
+  inbox: { documents: number; submitted: number };
+  extraction_review: Record<string, number>;
+  conflicts: number;
+  rule_decisions: { item: string; status: string }[];
+  fee_decisions: { item: string; status: string }[];
+  portfolio_statements: { total: number; drafts: number };
+  market_datasets: { total: number; automatically_activated: number };
+  completeness: Record<string, number>;
+  approval_packs: { total: number; decision_implied: boolean };
+  proof_no_activation: Record<string, number>;
+  audit_valid: boolean;
+  qualification: string;
+}
+
+interface EvidenceCase {
+  id: string;
+  title: string;
+  category: string;
+  state: string;
+  missing_documents: string[];
+}
+
 const importAttestation = "I confirm this file represents the stated DSE market date and source, and I understand it is operator-attested rather than exchange-verified.";
+const evidenceAttestation = "I confirm these documents are described accurately, contain no credentials, and are submitted for review only; upload does not mean verification or approval.";
 
 const money = (value: string | number | null | undefined) =>
   value == null ? "৳0" : `৳${Number(value).toLocaleString("en-BD", { maximumFractionDigits: 2 })}`;
@@ -138,6 +164,8 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [imports, setImports] = useState<DataImport[]>([]);
   const [infrastructure, setInfrastructure] = useState<InfrastructureSummary | null>(null);
   const [governance, setGovernance] = useState<PreCampaignGovernance | null>(null);
+  const [evidenceWorkspace, setEvidenceWorkspace] = useState<EvidenceWorkspaceSummary | null>(null);
+  const [evidenceCases, setEvidenceCases] = useState<EvidenceCase[]>([]);
   const [operatorKey, setOperatorKey] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importKind, setImportKind] = useState("quote");
@@ -146,12 +174,18 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [previewBatch, setPreviewBatch] = useState<string | null>(null);
   const [marketDate, setMarketDate] = useState(new Date().toISOString().slice(0, 10));
   const [operatorAcknowledgement, setOperatorAcknowledgement] = useState("");
+  const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
+  const [evidenceCaseId, setEvidenceCaseId] = useState("");
+  const [evidenceSourceOrganization, setEvidenceSourceOrganization] = useState("");
+  const [evidenceSourceClass, setEvidenceSourceClass] = useState("official_broker_document");
+  const [evidenceDescription, setEvidenceDescription] = useState("");
+  const [evidenceAttested, setEvidenceAttested] = useState(false);
 
   // Polling data every 3 seconds for real-time status
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes, governanceRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes, governanceRes, evidenceRes, casesRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
@@ -160,7 +194,9 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
           fetch(`${API_URL}/operations/summary`),
           fetch(`${API_URL}/data-imports`),
           fetch(`${API_URL}/infrastructure/summary`),
-          fetch(`${API_URL}/infrastructure/governance/pre-campaign`)
+          fetch(`${API_URL}/infrastructure/governance/pre-campaign`),
+          fetch(`${API_URL}/evidence-workspace/summary`),
+          fetch(`${API_URL}/evidence-workspace/cases`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
@@ -171,6 +207,12 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
         if (importsRes.ok) setImports(await importsRes.json());
         if (infrastructureRes.ok) setInfrastructure(await infrastructureRes.json());
         if (governanceRes.ok) setGovernance(await governanceRes.json());
+        if (evidenceRes.ok) setEvidenceWorkspace(await evidenceRes.json());
+        if (casesRes.ok) {
+          const loadedCases = await casesRes.json();
+          setEvidenceCases(loadedCases);
+          setEvidenceCaseId(current => current || loadedCases[0]?.id || "");
+        }
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -275,6 +317,33 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
     const data = await response.json().catch(() => ({}));
     if (action === "premarket" && response.ok) setReadiness(data);
     setMessage(response.ok ? `${action === "premarket" ? "Pre-market" : "Paper session start"}: ${data.ready === false ? "BLOCKED" : data.state ?? "completed"}` : `Action blocked: ${data.detail ?? response.statusText}`);
+  };
+
+  const uploadEvidenceBatch = async () => {
+    if (!operatorKey || !evidenceCaseId || !evidenceFiles.length || !evidenceSourceOrganization.trim() || !evidenceDescription.trim() || !evidenceAttested) {
+      setMessage("Operator key, case, files, source details, and the exact evidence attestation are required.");
+      return;
+    }
+    const body = new FormData();
+    evidenceFiles.forEach(file => body.append("files", file));
+    body.append("case_id", evidenceCaseId);
+    body.append("source_organization", evidenceSourceOrganization);
+    body.append("source_class", evidenceSourceClass);
+    body.append("source_description", evidenceDescription);
+    body.append("operator_attestation", evidenceAttestation);
+    const response = await fetch(`${API_URL}/evidence-workspace/inbox/batch`, {
+      method: "POST",
+      headers: { "X-API-Key": operatorKey },
+      body
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok) {
+      setMessage(`Evidence intake recorded: ${data.accepted?.length ?? 0} accepted, ${data.errors?.length ?? 0} rejected. Nothing was verified or approved.`);
+      setEvidenceFiles([]);
+      setEvidenceAttested(false);
+    } else {
+      setMessage(`Evidence intake blocked: ${data.detail ?? response.statusText}`);
+    }
   };
 
   const providerInfo = health.provider as {
@@ -465,6 +534,97 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
             ["Strategy Promotion Readiness", governance?.strategy_promotion_readiness ?? "evidence_incomplete", "Manual review only · no automatic transition"],
             ["Pre-Campaign Approval", governance?.campaign.qualification ?? "0/60", `Campaign ${governance?.campaign.created ? "created" : "missing"} · audit ${governance?.audit_valid ? "valid" : "invalid"}`]
           ].map(([title, value, note]) => <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-4"><p className="text-xs uppercase tracking-wider text-slate-500">{title}</p><p className="mt-2 text-sm font-semibold text-cyan">{value}</p><p className="mt-1 text-[11px] text-slate-500">{note}</p></article>)}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-amber-500/30 bg-panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold text-lg">Milestone 11 Evidence Workspace</h2>
+            <p className="text-xs text-slate-500">Human-reviewed evidence intake and decision preparation only</p>
+          </div>
+          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-xs font-bold text-amber-300">UPLOADED DOES NOT MEAN VERIFIED</span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ["Evidence Cases", stateCounts(evidenceWorkspace?.evidence_cases), `${evidenceCases.length} planned collections`],
+            ["Evidence Inbox", `${evidenceWorkspace?.inbox.documents ?? 0} documents`, `${evidenceWorkspace?.inbox.submitted ?? 0} awaiting verification`],
+            ["Extraction Review", stateCounts(evidenceWorkspace?.extraction_review), "Deterministic extraction; human accuracy review"],
+            ["Conflicts", String(evidenceWorkspace?.conflicts ?? 0), "Higher-ranked sources inform, never auto-resolve"],
+            ["Rule Decisions", `${evidenceWorkspace?.rule_decisions.filter(item => item.status === "approved").length ?? 0}/16 approved`, "Item-specific approval remains required"],
+            ["Fee Decisions", `${evidenceWorkspace?.fee_decisions.filter(item => item.status === "approved").length ?? 0}/12 approved`, "Examples are explanatory, not approval"],
+            ["Portfolio Statements", `${evidenceWorkspace?.portfolio_statements.drafts ?? 0} drafts`, "Preview only; no transactions or fills"],
+            ["Market Datasets", `${evidenceWorkspace?.market_datasets.total ?? 0} datasets`, `${evidenceWorkspace?.market_datasets.automatically_activated ?? 0} auto-activated`],
+            ["Completeness Tracker", stateCounts(evidenceWorkspace?.completeness), `Qualification ${evidenceWorkspace?.qualification ?? "0/60"}`],
+            ["Approval Packs", `${evidenceWorkspace?.approval_packs.total ?? 0} scoped packs`, evidenceWorkspace?.approval_packs.decision_implied ? "INVALID: decision implied" : "No decision implied"]
+          ].map(([title, value, note]) => (
+            <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">{title}</p>
+              <p className="mt-2 break-words text-xs font-semibold text-cyan">{value}</p>
+              <p className="mt-1 text-[10px] text-slate-500">{note}</p>
+            </article>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+          <article className="rounded-lg border border-line bg-[#0f192b] p-4">
+            <h3 className="text-sm font-semibold">Evidence Inbox & Intake</h3>
+            <p className="mt-1 text-[11px] text-slate-500">Batch upload preserves hashes and original files. Passwords, PINs and OTPs are forbidden.</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <select aria-label="Evidence case" value={evidenceCaseId} onChange={event => setEvidenceCaseId(event.target.value)} className="rounded border border-line bg-panel px-3 py-2 text-xs">
+                <option value="">Select evidence case</option>
+                {evidenceCases.map(item => <option key={item.id} value={item.id}>{item.title} · {item.state}</option>)}
+              </select>
+              <input aria-label="Evidence source organization" value={evidenceSourceOrganization} onChange={event => setEvidenceSourceOrganization(event.target.value)} placeholder="Source organization" className="rounded border border-line bg-panel px-3 py-2 text-xs" />
+              <select aria-label="Evidence source class" value={evidenceSourceClass} onChange={event => setEvidenceSourceClass(event.target.value)} className="rounded border border-line bg-panel px-3 py-2 text-xs">
+                <option value="official_exchange_publication">Official exchange</option>
+                <option value="regulator_publication">Regulator</option>
+                <option value="official_broker_document">Official broker document</option>
+                <option value="signed_account_statement">Signed account statement</option>
+                <option value="broker_customer_support_confirmation">Broker support confirmation</option>
+                <option value="listed_company_disclosure">Listed-company disclosure</option>
+                <option value="licensed_data_vendor">Licensed data vendor</option>
+                <option value="audited_third_party_source">Audited third-party source</option>
+                <option value="operator_attested_market_file">Operator-attested market file</option>
+                <option value="informal_webpage">Informal webpage</option>
+                <option value="social_media">Social media</option>
+                <option value="unknown">Unknown</option>
+              </select>
+              <input aria-label="Evidence source description" value={evidenceDescription} onChange={event => setEvidenceDescription(event.target.value)} placeholder="What the documents contain" className="rounded border border-line bg-panel px-3 py-2 text-xs" />
+            </div>
+            <div
+              className="mt-3 rounded border border-dashed border-cyan/30 p-4 text-center text-xs text-slate-400"
+              onDragOver={event => event.preventDefault()}
+              onDrop={event => {
+                event.preventDefault();
+                setEvidenceFiles(Array.from(event.dataTransfer.files));
+              }}
+            >
+              Drop evidence files here or
+              <input aria-label="Evidence files" type="file" multiple onChange={event => setEvidenceFiles(Array.from(event.target.files ?? []))} className="ml-2 max-w-56 text-[11px]" />
+              <p className="mt-2 font-mono text-cyan">{evidenceFiles.length ? `${evidenceFiles.length} file(s) selected` : "No files selected"}</p>
+            </div>
+            <label className="mt-3 flex gap-2 text-[11px] text-slate-300">
+              <input type="checkbox" checked={evidenceAttested} onChange={event => setEvidenceAttested(event.target.checked)} />
+              <span>{evidenceAttestation}</span>
+            </label>
+            <button onClick={uploadEvidenceBatch} className="mt-3 w-full rounded border border-cyan/30 py-2 text-xs font-semibold text-cyan">SUBMIT FOR REVIEW ONLY</button>
+          </article>
+
+          <article className="rounded-lg border border-line bg-[#0f192b] p-4">
+            <h3 className="text-sm font-semibold">Fail-Closed Workspace State</h3>
+            <div className="mt-3 space-y-2 text-xs">
+              {Object.entries(evidenceWorkspace?.proof_no_activation ?? {}).map(([label, count]) => (
+                <div key={label} className="flex justify-between border-b border-line py-2">
+                  <span className="capitalize text-slate-400">{label.replaceAll("_", " ")}</span>
+                  <span className={count === 0 ? "font-mono text-emerald-300" : "font-mono text-amber-300"}>{count}</span>
+                </div>
+              ))}
+              <div className="flex justify-between border-b border-line py-2"><span className="text-slate-400">Canonical audit</span><span className={evidenceWorkspace?.audit_valid ? "font-mono text-emerald-300" : "font-mono text-red-300"}>{evidenceWorkspace?.audit_valid ? "VALID" : "BLOCKED"}</span></div>
+              <div className="flex justify-between py-2"><span className="text-slate-400">Live execution</span><span className="font-mono text-red-300">DISABLED</span></div>
+            </div>
+            <p className="mt-3 rounded border border-red-500/20 bg-red-500/[.05] p-3 text-[11px] text-red-300">Extraction review confirms transcription accuracy only. It never activates rules, fees, risk limits, datasets, strategies, campaigns, or trading.</p>
+          </article>
         </div>
       </section>
 
