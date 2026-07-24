@@ -1,93 +1,174 @@
 # DSE AutoTrader
 
-A Windows-first DSE research, portfolio monitoring, backtesting and supervised **paper-trading** platform. Milestone 7 cannot submit real-money orders. The only executable broker is the local paper broker; `OfficialBrokerAdapter` always refuses calls.
+> **PAPER TRADING ONLY**
+>
+> **LIVE BROKER EXECUTION IS NOT IMPLEMENTED**
+>
+> **NO PROFITABILITY GUARANTEE**
+>
+> **CURRENT PUBLIC DSE PROVIDERS ARE NOT TRUSTED FOR LIVE OPERATION**
+>
+> **REAL-MARKET QUALIFICATION REMAINS 0/60**
 
-## Included
+DSE AutoTrader is a Windows-first research, portfolio-monitoring, backtesting, evidence-governance, and supervised paper-trading platform for the Dhaka Stock Exchange. It is designed to fail closed when market data, timestamps, risk state, approvals, or operational health are uncertain.
 
-- FastAPI, Pydantic and SQLAlchemy backend with SQLite fallback and PostgreSQL configuration
-- Normalized market-data contract with mock, CSV, bdshare and bdfinance adapters
-- Data freshness/provider-disagreement validation
-- Append-only portfolio transactions and derived holdings/P&L
-- Deterministic buy-and-hold, 20/50 MA, momentum+DSEX and volume-breakout backtests
-- Delayed fills, fees, slippage, liquidity limits and walk-forward partitions
-- Versioned signals, deterministic pre-trade risk, idempotent proposals and approval revalidation
-- Partial-fill paper broker, emergency stop and hash-chained audit events
-- Telegram notifier with console fallback
-- Dark Next.js dashboard with permanent safety banners
-- Alembic, Docker Compose, PowerShell setup and offline test fixtures
-- PostgreSQL-ready pooled/retry-safe persistence plus non-destructive SQLite migration tooling
-- Redis-backed external scheduler/worker processes with leases, heartbeats, recovery and dead letters
-- Durable versioned outbox events with replay and idempotent consumer-effect records
-- Vendor-neutral data-adapter SDK, quality evidence, human daily reviews and a 60-day tracker
-- Review-only evidence cases, deterministic claim extraction, conflict reporting, decision assistants, statement/dataset drafts, completeness tracking, and scoped approval packs
+This project is not financial advice and is not ready for real-money operation.
 
-## Windows quick start
+## Current status
 
-```powershell
-Set-Location 'E:\DSE AutoTrader'
-Copy-Item .env.example .env
-.\scripts\setup.ps1
-.\scripts\start.ps1
+Milestone 11 is complete. The repository includes review-only evidence intake, deterministic extraction, claim review and conflicts, rule and fee decision assistants, portfolio-statement drafts, market-dataset quality review, completeness tracking, and independently scoped approval packs.
+
+No evidence upload or review can activate rules, fees, risk limits, datasets, strategies, campaigns, or trading. No real-market day has qualified toward the required 60-day evidence target.
+
+## Architecture
+
+- **Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic
+- **Frontend:** Next.js, React, TypeScript, Tailwind CSS, Recharts
+- **Persistence:** SQLite for local development; PostgreSQL for production-like paper infrastructure
+- **Coordination:** Redis-backed external workers and scheduler with leases, heartbeats, retries, recovery, and dead letters
+- **Market data:** normalized adapters for mock, CSV, bdshare, and bdfinance contracts
+- **Execution:** local paper broker only; the official broker adapter refuses execution
+- **Governance:** append-only audit chain, human approvals, evidence hashes, source hierarchy, timestamp trust, and fail-closed readiness gates
+
+## Major features
+
+- Provider freshness, timestamp-trust, disagreement, failover, and circuit-breaker controls
+- Deterministic strategies, walk-forward analysis, sensitivity checks, and portfolio/DSEX comparisons
+- Versioned signals, pre-trade risk checks, idempotent proposals, and approval revalidation
+- Partial paper fills, fees, slippage, liquidity limits, emergency stop, and reconciliation
+- PostgreSQL/Redis process topology, durable task queues, outbox events, backups, and restore tooling
+- Evidence collection cases, immutable intake, deterministic extraction, claim review, and conflict handling
+- Rule/fee assistants, portfolio-statement drafts, dataset-quality reports, completeness tracking, and scoped approval packs
+- Operator dashboard with permanent paper-only and live-disabled banners
+
+## Repository structure
+
+```text
+backend/        FastAPI application, migrations, locked dependencies, and tests
+frontend/       Next.js operator dashboard
+config/         Public paper-trading configuration and market-calendar assumptions
+data/imports/   Sanitized templates and deterministic public fixtures only
+docs/           Architecture, operations, evidence, safety, and limitation guides
+scripts/        Setup, verification, backup, recovery, and paper-operations tools
+.github/        Public CI and contribution templates
 ```
 
-Open `http://localhost:3000` and API docs at `http://localhost:8000/api/docs`. Change both `API_SECRET_KEY` and `REVIEWER_API_SECRET_KEY`; operator mutations require the former, while protected evidence reads/reviews accept the appropriate role.
+Operational databases, imports, evidence, reports, logs, backups, audit archives, and credentials are intentionally excluded from Git.
 
-Manual start:
+## Environment setup
+
+Copy the public template and replace every `change-me` placeholder locally:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The following invariants must remain:
+
+```dotenv
+TRADING_MODE=paper
+LIVE_TRADING_ENABLED=false
+BROKER_ADAPTER=disabled
+```
+
+Never commit `.env`, API secrets, Telegram tokens/chat IDs, broker credentials, account statements, or portfolio records.
+
+## Backend setup
 
 ```powershell
 Set-Location backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r requirements\testing.lock.txt
+.\.venv\Scripts\python.exe -m pip install --no-deps -e .
 .\.venv\Scripts\alembic.exe upgrade head
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
-Set-Location ..\frontend
+```
+
+API documentation is available at `http://127.0.0.1:8000/api/docs`.
+
+## Frontend setup
+
+```powershell
+Set-Location frontend
+npm.cmd ci
 npm.cmd run dev
 ```
 
-## Verification
+The dashboard is available at `http://127.0.0.1:3000`.
+
+## Docker, PostgreSQL, and Redis
+
+Set distinct local PostgreSQL passwords in `.env`, then start the durable stores:
+
+```powershell
+docker compose up -d db db_test redis
+docker compose ps
+```
+
+Start the complete production-like **paper** topology only after the infrastructure doctor passes:
+
+```powershell
+.\scripts\infrastructure_doctor.ps1
+docker compose --profile production-like up -d
+```
+
+Services bind to loopback by default. Production-like infrastructure does not imply live-trading or real-market readiness.
+
+## Migrations
 
 ```powershell
 Set-Location backend
-.\.venv\Scripts\python.exe -m pytest
-.\.venv\Scripts\ruff.exe check .
-Set-Location ..\frontend
-npm.cmd run typecheck
-npm.cmd run build
+.\.venv\Scripts\alembic.exe current
+.\.venv\Scripts\alembic.exe upgrade head
 ```
 
-## Safety invariant
+The current schema head is `0011`.
 
-`TRADING_MODE=paper` and `LIVE_TRADING_ENABLED=false` are validated at process startup. Any live setting causes configuration failure. Market orders are rejected. Stale/unsafe data, provider conflicts, non-healthy kill switch, excessive exposure, duplicate identifiers and reconciliation failures fail closed.
+## Verification
 
-See [POSTGRESQL_OPERATIONS.md](docs/POSTGRESQL_OPERATIONS.md), [WORKER_ARCHITECTURE.md](docs/WORKER_ARCHITECTURE.md), [EVENT_BUS.md](docs/EVENT_BUS.md), [PAPER_TRADING_GUIDE.md](docs/PAPER_TRADING_GUIDE.md), and [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
-
-## Milestone 11 evidence workspace
-
-Milestone 11 adds a local evidence inbox and review workflow. Uploads are hashed and retained, deterministic extraction preserves source locations and original values, conflicts remain visible, and rule/fee assistants plus scoped approval packs prepare—not make—human decisions. Portfolio statements and market datasets remain drafts. No upload, extraction, review, or pack activates configuration or creates a campaign, session, proposal, order, transaction, or fill.
-
-See [EVIDENCE_WORKSPACE.md](docs/EVIDENCE_WORKSPACE.md) and [EVIDENCE_DECISION_WORKFLOWS.md](docs/EVIDENCE_DECISION_WORKFLOWS.md).
-
-## Milestone 2 operations
-
-Persistent job records, overlap prevention, bounded retry/backoff, stale-worker recovery, provider failover, restart reconciliation and Telegram controls support reliable paper operations. Run APScheduler in exactly one process; set `SCHEDULER_ENABLED=false` on additional API workers. Telegram access is fail-closed through `TELEGRAM_ALLOWED_CHAT_IDS`; every one-time approval is revalidated immediately before paper execution.
-
-## Milestone 3 paper validation
-
-Named persistent paper sessions, an auditable Bangladesh calendar, conservative DSE execution rules, reversible imports, opt-in real-provider diagnostics and evidence packs support continuous paper validation. Start with `scripts\paper-operator.ps1`. Real broker execution remains unavailable.
-
-## Milestone 6 sustained campaigns
-
-Persistent multi-day campaigns, missed-session/EOD recovery, operator-attested quote/OHLCV/DSEX imports, immutable rule and fee versions, strategy governance, incidents, campaign analytics, and local operational metrics support several-week paper evidence collection.
-
-Run the deterministic 20-session verification from `backend` with this repository pinned:
+Backend:
 
 ```powershell
+Set-Location backend
 $env:PYTHONPATH = (Get-Location).Path
-.\.venv\Scripts\python.exe ..\scripts\operator.py simulate-campaign
+.\.venv\Scripts\python.exe -m pytest
+.\.venv\Scripts\ruff.exe format --check app tests
+.\.venv\Scripts\ruff.exe check app tests
+.\.venv\Scripts\mypy.exe --strict --no-incremental app
 ```
 
-See [CAMPAIGN_OPERATIONS.md](docs/CAMPAIGN_OPERATIONS.md), [DAILY_OPERATIONS.md](docs/DAILY_OPERATIONS.md), and [DATA_IMPORT_ATTESTATION.md](docs/DATA_IMPORT_ATTESTATION.md). Results are paper evidence, not proof of profitability.
+Frontend:
 
-## Milestone 7 production-like paper infrastructure
+```powershell
+Set-Location frontend
+npm.cmd ci
+npm.cmd run typecheck
+npm.cmd run lint
+npm.cmd run build
+npm.cmd audit --audit-level=high
+```
 
-Production-like mode requires PostgreSQL, Redis, one external scheduler, and one or more workers. SQLite and in-process scheduling remain development/test modes. Daily evidence must pass data-quality gates and human review before it counts toward the 60-day qualification target.
+PostgreSQL and Redis integration tests require explicit `TEST_POSTGRES_URL` and `TEST_REDIS_URL`. A skipped infrastructure test is not a verified infrastructure result.
 
-The completed local 30-day exercise is explicitly an emulation: 29 days qualified after one injected rejected review, leaving 31. Docker Desktop was unavailable, so PostgreSQL/Redis integration and actual service-restart verification remain blocked. See [VERIFICATION.md](docs/VERIFICATION.md), [DAILY_EVIDENCE_REVIEW.md](docs/DAILY_EVIDENCE_REVIEW.md), and [PAPER_QUALIFICATION_TRACKER.md](docs/PAPER_QUALIFICATION_TRACKER.md).
+## Evidence and governance
+
+Evidence submissions are review-only. Files are hashed and retained locally, extracted claims preserve their source locations and original values, and conflicts require a human decision. Source rank never auto-verifies a claim.
+
+Approval packs are independently scoped to rules, fees, risk limits, real datasets, strategy promotion, or campaign creation. Pack generation grants no approval and blanket approval is forbidden.
+
+See [Evidence Workspace](docs/EVIDENCE_WORKSPACE.md), [Evidence Decision Workflows](docs/EVIDENCE_DECISION_WORKFLOWS.md), and [Known Limitations](docs/KNOWN_LIMITATIONS.md).
+
+## Security
+
+Do not use public issues for credentials, account statements, private portfolio data, or personal financial records. See [SECURITY.md](SECURITY.md) for reporting guidance.
+
+The local API-key and role controls are intended for a trusted local operator environment, not an internet-facing multi-user service.
+
+## Contribution status
+
+External code contributions are not currently accepted while project licensing and governance are being decided. Non-sensitive bug reports and documentation observations are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License status
+
+**No public reuse license has been granted.** No `LICENSE` file currently exists. Copyright law therefore reserves reuse, modification, and redistribution rights unless the copyright holder grants permission separately.

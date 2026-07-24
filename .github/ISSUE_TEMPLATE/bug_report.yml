@@ -1,0 +1,43 @@
+name: Bug report
+description: Report a reproducible issue using sanitized, deterministic data.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, account identifiers, statements, portfolio data,
+        private evidence, databases, reports, logs, backups, or audit archives.
+        Security vulnerabilities must use the private security-advisory link.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed all credentials, personal information, and financial records.
+          required: true
+        - label: I reproduced this with mock, deterministic, or sanitized public data.
+          required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide minimal safe steps and identify any skipped infrastructure checks.
+    validations:
+      required: true
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Trading mode
+      options:
+        - Paper mode with live trading disabled
+    validations:
+      required: true
