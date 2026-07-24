@@ -268,3 +268,29 @@ Safety remained `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, and `BROKER_
 | Qualification | `0/60 real-market qualifying days`; no genuine reviewed day exists |
 
 The archived-history authorization is recorded by event `f5102486-9f33-446e-a46d-845e5e550e44`, integrity hash `8004da153fe17401a9226a8a05c19f561d701340e0d0e07a142d30205861a4ca`. Its zero predecessor anchors the single canonical chain to the archive hash stored in the chain and initialization event.
+
+## Milestone 11 evidence workspace — 2026-07-24
+
+Verdict: **IMPLEMENTED AND VERIFIED; REVIEW-ONLY / NO ACTIVATION**.
+
+| Verification | Result |
+| --- | --- |
+| Evidence cases and intake | PASS: 16 idempotent planned cases; batch intake, filename/type validation, SHA-256, duplicate rejection, immutable retention, exact attestation, and per-file errors tested |
+| Extraction and claim review | PASS: deterministic CSV/XLSX/text extraction preserves evidence/source locations/original values; review actions remain human-controlled and non-approving |
+| Conflicts and source hierarchy | PASS: value, effective-date, rank, and account-scope differences remain visible; source rank never auto-verifies or auto-resolves |
+| Rule and fee assistants | PASS: item-specific evidence, missing questions, conservative alternatives, decision options, and BDT 5k/10k/50k/100k/500k fee examples generated without approval |
+| Portfolio statements | PASS: credential columns and duplicate hashes rejected; draft/reconciliation/discrepancy/reversal tested; zero ledger transactions created |
+| Market datasets | PASS: schema/date/missing/duplicate/outlier/corporate-action/timestamp reports generated; zero automatic activation and zero qualification days |
+| Completeness and packs | PASS: 16 rules, 12 fees, 12 risk items and downstream gates tracked; six scoped packs generated with `decision_implied=false` and `blanket_approval_allowed=false` |
+| Focused Milestone 11 tests | PASS: 11 tests |
+| Full backend | PASS: 180 collected, 178 passed, 2 optional PostgreSQL/Redis integration tests skipped because Docker's Linux-engine pipe was unavailable |
+| Ruff / strict mypy | PASS: format/lint clean; strict mypy passed across 94 application/script sources |
+| Alembic `0011` | PASS: isolated clean base-to-`0011`, downgrade to `0010`, re-upgrade to `0011`; operational SQLite is at `0011` |
+| Frontend | PASS: clean `npm ci`, TypeScript, ESLint, and Next.js production build |
+| Dependency/security scans | PASS: Next.js patched to 15.5.21 with patched PostCSS/Sharp resolutions; `npm audit` found 0 vulnerabilities; `pip-audit` found no known dependency vulnerabilities; tracked secret scan found none |
+| Canonical audit | PASS: chain `c7aa6ed0-1288-417f-acbb-6ad4bfdd967c` valid with 159 canonical events; preserved legacy records unchanged |
+| Backup/isolated restore | PASS: `dse_autotrader_backup_20260724_210824.db`, SHA-256 `3BEB28C1B83982093C30F1FE625A6C174DE05D2A2A4B0A002AA36D40CA9839F0`; restored hash matched, `quick_check=ok`, revision `0011`, 16 cases, 6 packs, audit valid |
+| No-activation assertion | PASS: before/after preserved counts were identical—campaigns 3, sessions 5, orders 5, transactions/fills 2, promoted strategies 4; every Milestone 11 delta was zero |
+| Safety | PASS: `TRADING_MODE=paper`, `LIVE_TRADING_ENABLED=false`, `BROKER_ADAPTER=disabled`; qualification remains `0/60` |
+
+The preserved operational counts are historical test/prior-milestone records; Milestone 11 neither deleted nor changed them. No genuine new authoritative evidence was provided, no pack implies a decision, and no profitability, real-market, campaign, or live-readiness claim is made.

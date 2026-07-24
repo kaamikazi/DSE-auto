@@ -101,3 +101,14 @@ No authoritative DSE/broker/account evidence or approved real-market research da
 - PostgreSQL and Redis integration tests passed, but this milestone did not rerun Milestone 9's resource-intensive distributed B2/campaign exercises.
 - Market rules, fee assumptions, risk thresholds, execution/slippage assumptions, licensed data rights, independent monitoring, encrypted backup key management, legal/compliance approval, and official broker documentation still require independent approval before any future real-money design.
 - Live execution remains absent and disabled. No broker login, password, PIN, OTP, CAPTCHA, Selenium, browser automation, unofficial endpoint, AI approval, or live order path was added.
+
+## Milestone 11 limitations
+
+- The workspace implements evidence collection and review mechanics; no genuine new DSE, broker, account, or licensed market-data evidence was supplied during implementation.
+- Deterministic extraction supports CSV/XLSX and simple text-bearing documents. Scanned PDFs and images require careful manual transcription and independent review.
+- Source hierarchy is an aid, not a truth oracle. Authenticity, applicability, effective date, supersession, and conflicts still require a human decision.
+- Portfolio-statement parsing is a draft workflow and does not cover every broker-specific layout. It deliberately creates no ledger transactions or holdings.
+- Dataset quality checks are screening controls, not proof that a source is licensed, complete, exchange-timestamped, or suitable for real-market qualification.
+- Approval packs are point-in-time summaries. They cannot approve, activate, promote, create a campaign, or start trading.
+- The repository virtual environment may retain editable-package metadata from the independent Antigravity copy. Verification pins `PYTHONPATH` to this repository; rebuilding the environment from locked requirements is recommended.
+- Real-market qualification remains `0/60`; profitability and live-trading readiness are not claimed.

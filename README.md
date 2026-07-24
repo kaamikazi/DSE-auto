@@ -19,6 +19,7 @@ A Windows-first DSE research, portfolio monitoring, backtesting and supervised *
 - Redis-backed external scheduler/worker processes with leases, heartbeats, recovery and dead letters
 - Durable versioned outbox events with replay and idempotent consumer-effect records
 - Vendor-neutral data-adapter SDK, quality evidence, human daily reviews and a 60-day tracker
+- Review-only evidence cases, deterministic claim extraction, conflict reporting, decision assistants, statement/dataset drafts, completeness tracking, and scoped approval packs
 
 ## Windows quick start
 
@@ -57,6 +58,12 @@ npm.cmd run build
 `TRADING_MODE=paper` and `LIVE_TRADING_ENABLED=false` are validated at process startup. Any live setting causes configuration failure. Market orders are rejected. Stale/unsafe data, provider conflicts, non-healthy kill switch, excessive exposure, duplicate identifiers and reconciliation failures fail closed.
 
 See [POSTGRESQL_OPERATIONS.md](docs/POSTGRESQL_OPERATIONS.md), [WORKER_ARCHITECTURE.md](docs/WORKER_ARCHITECTURE.md), [EVENT_BUS.md](docs/EVENT_BUS.md), [PAPER_TRADING_GUIDE.md](docs/PAPER_TRADING_GUIDE.md), and [KNOWN_LIMITATIONS.md](docs/KNOWN_LIMITATIONS.md).
+
+## Milestone 11 evidence workspace
+
+Milestone 11 adds a local evidence inbox and review workflow. Uploads are hashed and retained, deterministic extraction preserves source locations and original values, conflicts remain visible, and rule/fee assistants plus scoped approval packs prepare—not make—human decisions. Portfolio statements and market datasets remain drafts. No upload, extraction, review, or pack activates configuration or creates a campaign, session, proposal, order, transaction, or fill.
+
+See [EVIDENCE_WORKSPACE.md](docs/EVIDENCE_WORKSPACE.md) and [EVIDENCE_DECISION_WORKFLOWS.md](docs/EVIDENCE_DECISION_WORKFLOWS.md).
 
 ## Milestone 2 operations
 

@@ -25,9 +25,11 @@ reports/dependencies/
 reports/recovery/
 reports/incidents/
 reports/memory/
+reports/evidence_workspace/
 reports/distributed_campaign/*.dump
 logs/
 data/process-state/
+data/evidence_workspace/
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 !data/backups/.gitkeep
