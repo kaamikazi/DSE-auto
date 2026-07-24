@@ -675,3 +675,96 @@ class StrategyReadinessReport(Base):
     missing_items: Mapped[list[str]] = mapped_column(JSON, default=list)
     report_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EvidenceCollectionCase(Base):
+    __tablename__ = "evidence_collection_cases"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    title: Mapped[str] = mapped_column(String(255))
+    evidence_category: Mapped[str] = mapped_column(String(64), index=True)
+    requested_documents: Mapped[list[str]] = mapped_column(JSON, default=list)
+    received_evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    missing_documents: Mapped[list[str]] = mapped_column(JSON, default=list)
+    responsible_collector: Mapped[str] = mapped_column(String(100))
+    reviewer: Mapped[str | None] = mapped_column(String(100))
+    due_date: Mapped[date | None] = mapped_column(Date, index=True)
+    review_date: Mapped[date | None] = mapped_column(Date, index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[str] = mapped_column(String(32), default="planned", index=True)
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EvidenceSourceProfile(Base):
+    __tablename__ = "evidence_source_profiles"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    source_class: Mapped[str] = mapped_column(String(64), index=True)
+    hierarchy_rank: Mapped[int] = mapped_column(Integer)
+    authority_scope: Mapped[list[str]] = mapped_column(JSON, default=list)
+    applicable_from: Mapped[date | None] = mapped_column(Date)
+    applicable_to: Mapped[date | None] = mapped_column(Date)
+    account_applicability: Mapped[list[str]] = mapped_column(JSON, default=list)
+    authenticity_review: Mapped[str] = mapped_column(String(32), default="pending")
+    confidence: Mapped[str] = mapped_column(String(32), default="unknown")
+    conflicts: Mapped[list[str]] = mapped_column(JSON, default=list)
+    auto_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ExtractedClaim(Base):
+    __tablename__ = "extracted_claims"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    evidence_id: Mapped[str] = mapped_column(ForeignKey("authoritative_evidence.id"), index=True)
+    case_id: Mapped[str | None] = mapped_column(
+        ForeignKey("evidence_collection_cases.id"), index=True
+    )
+    source_profile_id: Mapped[str | None] = mapped_column(
+        ForeignKey("evidence_source_profiles.id"), index=True
+    )
+    claim_type: Mapped[str] = mapped_column(String(100), index=True)
+    source_location: Mapped[str] = mapped_column(String(255))
+    original_value: Mapped[str] = mapped_column(Text)
+    normalized_interpretation: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    confidence: Mapped[str] = mapped_column(String(32), default="unknown")
+    extraction_method: Mapped[str] = mapped_column(String(64))
+    reviewer_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    reviewer: Mapped[str | None] = mapped_column(String(100))
+    reviewer_notes: Mapped[str] = mapped_column(Text, default="")
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    supporting_evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    conflict_reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PortfolioStatementDraft(Base):
+    __tablename__ = "portfolio_statement_drafts"
+    __table_args__ = (UniqueConstraint("account_label", "statement_date", "statement_hash"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    evidence_id: Mapped[str] = mapped_column(ForeignKey("authoritative_evidence.id"), index=True)
+    broker_label: Mapped[str] = mapped_column(String(100))
+    account_label: Mapped[str] = mapped_column(String(100), index=True)
+    statement_date: Mapped[date] = mapped_column(Date, index=True)
+    statement_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    parsed_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    reconciliation_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    discrepancies: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    state: Mapped[str] = mapped_column(String(32), default="previewed", index=True)
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reversed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ApprovalPackRecord(Base):
+    __tablename__ = "approval_pack_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    scope: Mapped[str] = mapped_column(String(64), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    pack_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    output_path: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(32), default="generated", index=True)
+    audit_event_id: Mapped[str | None] = mapped_column(String(36))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
