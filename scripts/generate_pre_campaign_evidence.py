@@ -17,20 +17,6 @@ from app.services.research_governance import (  # noqa: E402
     build_rule_verification_review,
 )
 
-DECISION_AUDIT_EVENT_IDS = [
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-    "REMOVED-OPERATIONAL-AUDIT-ID",
-]
-
 
 def _write_json(path: Path, payload: dict[str, Any]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -50,8 +36,12 @@ def main() -> int:
         description="Generate research-only pre-campaign evidence"
     )
     parser.add_argument("--output", type=Path, default=ROOT / "reports" / "governance")
+    parser.add_argument("--registration-id", default="UNASSIGNED")
     parser.add_argument(
-        "--registration-id", default="REMOVED-OPERATIONAL-REGISTRATION-ID"
+        "--decision-audit-event-id",
+        action="append",
+        default=[],
+        help="Repeat for each locally verified decision event; no identifiers are embedded.",
     )
     args = parser.parse_args()
     strategy = build_ma_crossover_evidence()
@@ -65,7 +55,9 @@ def main() -> int:
     approval_path = args.output / "pre_campaign_approval_pack.json"
     approval = {
         "classification": "research_only_pre_campaign_approval_pack",
-        "decision_audit_event_ids": DECISION_AUDIT_EVENT_IDS,
+        "decision_audit_event_ids": args.decision_audit_event_id,
+        "decision_evidence_complete": bool(args.decision_audit_event_id),
+        "decisions_are_independent": True,
         "blanket_authorization": False,
         "decisions": {
             "strategy_registration": "ma_crossover@1.0.0 research only",
@@ -95,7 +87,11 @@ def main() -> int:
         "rule_review": rules,
         "fee_review": fees,
         "risk_review": risk,
-        "reviewer": {"identity": "operator-reviewer", "also_operator": True, "independent": False},
+        "reviewer": {
+            "identity": "operator-reviewer",
+            "also_operator": True,
+            "independent": False,
+        },
         "campaign": {
             "name": "Reference Portfolio 60-Day Paper Validation",
             "created": False,

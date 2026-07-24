@@ -89,15 +89,16 @@ def test_all_review_tables_are_unapproved_and_inactive() -> None:
 
 
 def test_decisions_remain_separate_and_are_not_blanket_authorization() -> None:
-    approval = json.loads(
-        (ROOT / "reports" / "governance" / "pre_campaign_approval_pack.json").read_text(
-            encoding="utf-8"
-        )
+    rules = build_rule_verification_review()
+    fees = build_fee_verification_review()
+    risk = build_risk_limit_review()
+    assert rules["active"] is False
+    assert fees["active"] is False
+    assert risk["activation_authorized"] is False
+    assert {item["item"] for item in rules["items"]}.isdisjoint(
+        item["item"] for item in fees["items"]
     )
-    event_ids = approval["decision_audit_event_ids"]
-    assert len(event_ids) == 11
-    assert len(set(event_ids)) == 11
-    assert approval["blanket_authorization"] is False
+    assert all(item["approved"] is False for item in [*rules["items"], *fees["items"]])
 
 
 def test_operator_attested_templates_are_research_only() -> None:
