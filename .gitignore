@@ -1,35 +1,67 @@
+# Local environment and credentials
 .env
+.env.*
+!.env.example
+
+# Python environments and caches
 .venv/
+venv/
+backend/.venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-*.db
-backend/data/*.db*
-*.sqlite3
+coverage/
+htmlcov/
+
+# Frontend dependencies and output
 node_modules/
 .next/
 *.tsbuildinfo
-coverage/
-htmlcov/
-data/cache/*
-data/reports/*
-data/backups/*
-reports/campaigns/
-reports/disaster_recovery/
-reports/distributed_simulation/
-reports/infrastructure/
-reports/dependencies/
-reports/recovery/
-reports/incidents/
-reports/memory/
-reports/evidence_workspace/
-reports/distributed_campaign/*.dump
+
+# Databases, dumps, archives, certificates, and private keys
+*.db
+*.db*
+*.sqlite
+*.sqlite3
+*.dump
+*.rdb
+*.zip
+*.tar
+*.tar.gz
+*.pem
+*.key
+*.pfx
+*.p12
+*.crt
+*.cer
+
+# Operational and private artifacts
+reports/
 logs/
-data/process-state/
+tmp/
+temp/
+backups/
+recovery/
+evidence/
+data/backups/
+data/audit_archives/
+data/evidence/
 data/evidence_workspace/
+data/reports/
+data/process-state/
+data/cache/*
+backend/data/
+
+# Operator imports are private by default; retain only public templates/fixtures.
+data/imports/*
+!data/imports/*.example
+!data/imports/*-template.csv
+!data/imports/GP.csv
+
+# Keep empty public directory placeholders.
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 !data/backups/.gitkeep
