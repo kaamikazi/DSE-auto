@@ -232,3 +232,14 @@ def test_summary_proves_no_activation_campaign_order_or_fill(db: Session) -> Non
     }
     assert db.scalar(select(func.count()).select_from(ValidationCampaign)) == 0
     assert summary["qualification"] == "0/60"
+
+
+def test_research_data_api_exposes_read_only_operations(client) -> None:  # type: ignore[no-untyped-def]
+    summary = client.get("/api/v1/research-data/summary")
+    assert summary.status_code == 200
+    assert "REAL PORTFOLIO READ ONLY" in summary.json()["banners"]
+    workflow = client.get("/api/v1/research-data/workflow/eod").json()
+    assert workflow["order_submission"] is False
+    questions = client.get("/api/v1/research-data/questionnaires").json()
+    assert questions["data_vendor"] and questions["broker"]
+    assert client.post("/api/v1/research-data/compare", json={}).status_code == 401
