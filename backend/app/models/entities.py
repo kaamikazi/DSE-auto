@@ -768,3 +768,132 @@ class ApprovalPackRecord(Base):
     state: Mapped[str] = mapped_column(String(32), default="generated", index=True)
     audit_event_id: Mapped[str | None] = mapped_column(String(36))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GovernedDataset(Base):
+    __tablename__ = "governed_datasets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    source_category: Mapped[str] = mapped_column(String(64), index=True)
+    source_name: Mapped[str] = mapped_column(String(255))
+    source_reference: Mapped[str] = mapped_column(Text)
+    publisher: Mapped[str] = mapped_column(String(255))
+    publication_date: Mapped[date | None] = mapped_column(Date)
+    stated_date_coverage: Mapped[str] = mapped_column(Text, default="")
+    stated_symbol_coverage: Mapped[list[str]] = mapped_column(JSON, default=list)
+    license_note: Mapped[str] = mapped_column(Text)
+    adjustment_status: Mapped[str] = mapped_column(String(32), default="unknown")
+    raw_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    file_size: Mapped[int] = mapped_column(Integer)
+    mime_type: Mapped[str] = mapped_column(String(128))
+    raw_file_path: Mapped[str] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    operator: Mapped[str] = mapped_column(String(100))
+    timestamp_trust: Mapped[str] = mapped_column(String(32))
+    source_trust: Mapped[str] = mapped_column(String(32))
+    review_status: Mapped[str] = mapped_column(String(32), default="previewed", index=True)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    audit_event_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+
+
+class DatasetImportRun(Base):
+    __tablename__ = "dataset_import_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("governed_datasets.id"), index=True)
+    batch_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    column_mapping: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    inferred_schema: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    preview: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    normalized_file_path: Mapped[str | None] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(String(32), default="previewed", index=True)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NormalizedDailyBar(Base):
+    __tablename__ = "normalized_daily_bars"
+    __table_args__ = (UniqueConstraint("dataset_id", "symbol", "trading_date", "source_row_id"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("governed_datasets.id"), index=True)
+    import_run_id: Mapped[str] = mapped_column(ForeignKey("dataset_import_runs.id"), index=True)
+    batch_hash: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    trading_date: Mapped[date] = mapped_column(Date, index=True)
+    open: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    high: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    low: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    close: Mapped[Decimal] = mapped_column(Numeric(18, 4))
+    adjusted_close: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    volume: Mapped[Decimal] = mapped_column(Numeric(24, 4), default=0)
+    value: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
+    number_of_trades: Mapped[int | None] = mapped_column(Integer)
+    previous_close: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    source: Mapped[str] = mapped_column(String(255))
+    source_row_id: Mapped[str] = mapped_column(String(128))
+    adjusted: Mapped[bool] = mapped_column(Boolean, default=False)
+    timestamp_trust: Mapped[str] = mapped_column(String(32))
+    timestamp_provenance: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    active_for_research: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
+
+class CrossSourceValidationRun(Base):
+    __tablename__ = "cross_source_validation_runs"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    primary_dataset_id: Mapped[str] = mapped_column(ForeignKey("governed_datasets.id"))
+    secondary_dataset_id: Mapped[str] = mapped_column(ForeignKey("governed_datasets.id"))
+    report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    report_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    output_paths: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    review_status: Mapped[str] = mapped_column(String(32), default="review_required")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CorporateActionRecord(Base):
+    __tablename__ = "corporate_action_records"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    announcement_date: Mapped[date | None] = mapped_column(Date)
+    ex_date: Mapped[date | None] = mapped_column(Date)
+    record_date: Mapped[date | None] = mapped_column(Date)
+    effective_date: Mapped[date | None] = mapped_column(Date)
+    ratio_or_amount: Mapped[str | None] = mapped_column(String(64))
+    source_evidence_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    verification_status: Mapped[str] = mapped_column(String(32), default="pending")
+    adjustment_factor: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
+    affected_dataset_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    review_decision: Mapped[str] = mapped_column(String(32), default="review_required")
+    inferred: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ResearchUniverseVersion(Base):
+    __tablename__ = "research_universe_versions"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(150), unique=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    methodology: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    version_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UniverseMembershipPeriod(Base):
+    __tablename__ = "universe_membership_periods"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    universe_id: Mapped[str] = mapped_column(
+        ForeignKey("research_universe_versions.id"), index=True
+    )
+    symbol: Mapped[str] = mapped_column(String(32), index=True)
+    eligible_from: Mapped[date] = mapped_column(Date)
+    eligible_to: Mapped[date | None] = mapped_column(Date)
+    listing_date: Mapped[date | None] = mapped_column(Date)
+    delisting_date: Mapped[date | None] = mapped_column(Date)
+    suspension_periods: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    category_history: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    symbol_changes: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    missing_data_periods: Mapped[list[dict[str, str]]] = mapped_column(JSON, default=list)
+    liquidity_history: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    sector: Mapped[str | None] = mapped_column(String(100))
+    market_cap_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
