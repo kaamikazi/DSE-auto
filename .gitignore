@@ -61,7 +61,5 @@ data/imports/*
 !data/imports/*-template.csv
 !data/imports/GP.csv
 
-# Keep empty public directory placeholders.
+# Keep only the non-sensitive cache directory placeholder.
 !data/cache/.gitkeep
-!data/reports/.gitkeep
-!data/backups/.gitkeep
