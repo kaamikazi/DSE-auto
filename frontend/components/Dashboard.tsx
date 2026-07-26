@@ -147,6 +147,22 @@ interface EvidenceCase {
   missing_documents: string[];
 }
 
+interface ResearchDataSummary {
+  banners: string[];
+  datasets: number;
+  imports: number;
+  active_research_bars: number;
+  cross_source_runs: number;
+  corporate_actions: number;
+  universes: number;
+  portfolio_drafts: number;
+  vendor_questionnaire: string[];
+  broker_questionnaire: string[];
+  proof_no_activation: Record<string, number>;
+  qualification: string;
+  audit_valid: boolean;
+}
+
 const importAttestation = "I confirm this file represents the stated DSE market date and source, and I understand it is operator-attested rather than exchange-verified.";
 const evidenceAttestation = "I confirm these documents are described accurately, contain no credentials, and are submitted for review only; upload does not mean verification or approval.";
 
@@ -166,6 +182,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   const [governance, setGovernance] = useState<PreCampaignGovernance | null>(null);
   const [evidenceWorkspace, setEvidenceWorkspace] = useState<EvidenceWorkspaceSummary | null>(null);
   const [evidenceCases, setEvidenceCases] = useState<EvidenceCase[]>([]);
+  const [researchData, setResearchData] = useState<ResearchDataSummary | null>(null);
   const [operatorKey, setOperatorKey] = useState("");
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importKind, setImportKind] = useState("quote");
@@ -185,7 +202,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes, governanceRes, evidenceRes, casesRes] = await Promise.all([
+        const [hRes, pRes, sRes, sessionRes, readinessRes, operationsRes, importsRes, infrastructureRes, governanceRes, evidenceRes, casesRes, researchDataRes] = await Promise.all([
           fetch(`${API_URL}/health`),
           fetch(`${API_URL}/portfolio`),
           fetch(`${API_URL}/scheduler/health`),
@@ -196,7 +213,8 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
           fetch(`${API_URL}/infrastructure/summary`),
           fetch(`${API_URL}/infrastructure/governance/pre-campaign`),
           fetch(`${API_URL}/evidence-workspace/summary`),
-          fetch(`${API_URL}/evidence-workspace/cases`)
+          fetch(`${API_URL}/evidence-workspace/cases`),
+          fetch(`${API_URL}/research-data/summary`)
         ]);
         if (hRes.ok) setHealth(await hRes.json());
         if (pRes.ok) setPortfolio(await pRes.json());
@@ -213,6 +231,7 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
           setEvidenceCases(loadedCases);
           setEvidenceCaseId(current => current || loadedCases[0]?.id || "");
         }
+        if (researchDataRes.ok) setResearchData(await researchDataRes.json());
       } catch (err) {
         console.error("Dashboard poll failed", err);
       }
@@ -625,6 +644,47 @@ export function Dashboard({ health: initialHealth, portfolio: initialPortfolio }
             </div>
             <p className="mt-3 rounded border border-red-500/20 bg-red-500/[.05] p-3 text-[11px] text-red-300">Extraction review confirms transcription accuracy only. It never activates rules, fees, risk limits, datasets, strategies, campaigns, or trading.</p>
           </article>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-cyan/30 bg-panel p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold text-lg">Governed DSE Research Data</h2>
+            <p className="text-xs text-slate-500">Public and operator-supplied data is review-only until explicitly activated for research</p>
+          </div>
+          <span className="rounded border border-red-500/40 bg-red-500/10 px-3 py-1 text-xs font-bold text-red-300">REAL PORTFOLIO READ ONLY</span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          {[
+            ["Dataset Registry", researchData?.datasets ?? 0, "Trust is evidence-based, never inferred from a domain"],
+            ["Dataset Imports", researchData?.imports ?? 0, `${researchData?.active_research_bars ?? 0} research-only rows`],
+            ["Cross-Source Conflicts", researchData?.cross_source_runs ?? 0, "Material conflicts require review; no averaging"],
+            ["Corporate Actions", researchData?.corporate_actions ?? 0, "Inferences cannot auto-verify"],
+            ["Research Universe", researchData?.universes ?? 0, "Eligibility is time-varying and draft by default"],
+            ["DSEX Data", researchData?.datasets ?? 0, "Governed index series; never a stock proxy"],
+            ["Official Rule Evidence", evidenceWorkspace?.rule_decisions.length ?? 0, "Human-reviewed claim workflow"],
+            ["Broker Fee Evidence", evidenceWorkspace?.fee_decisions.length ?? 0, "Credentials are rejected"],
+            ["Real Portfolio Read-Only", researchData?.portfolio_drafts ?? 0, "Strictly isolated from paper holdings"],
+            ["Portfolio Risk", "REVIEW", "Observations, warnings, and paper scenarios only"],
+            ["ma_crossover Research", "RESEARCH", "No promotion or profit claim"],
+            ["Data Quality", researchData?.audit_valid ? "AUDITED" : "BLOCKED", "Timestamp provenance remains distinct"],
+            ["Daily EOD Workflow", "HUMAN REVIEW", "No software-submitted real order"],
+            ["Vendor Questionnaire", researchData?.vendor_questionnaire.length ?? 0, "Licensing and provenance questions"],
+            ["Broker Questionnaire", researchData?.broker_questionnaire.length ?? 0, "No API-access claim until confirmed"]
+          ].map(([title, value, note]) => (
+            <article key={title} className="rounded-lg border border-line bg-[#0f192b] p-3">
+              <p className="text-[10px] uppercase tracking-wider text-slate-500">{title}</p>
+              <p className="mt-2 text-xs font-semibold text-cyan">{value}</p>
+              <p className="mt-1 text-[10px] text-slate-500">{note}</p>
+            </article>
+          ))}
+        </div>
+        <div className="mt-4 rounded border border-line bg-[#0f192b] p-3 text-xs">
+          <div className="flex flex-wrap justify-between gap-3">
+            <span>Qualification <strong className="text-amber-300">{researchData?.qualification ?? "0/60"}</strong></span>
+            {Object.entries(researchData?.proof_no_activation ?? {}).map(([key, value]) => <span key={key}>{key.replaceAll("_", " ")} <strong className={value === 0 ? "text-emerald-300" : "text-red-300"}>{value}</strong></span>)}
+          </div>
         </div>
       </section>
 
