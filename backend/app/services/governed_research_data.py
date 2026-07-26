@@ -197,7 +197,10 @@ def _rows(filename: str, raw: bytes) -> list[dict[str, Any]]:
         )
     except ImportError as exc:
         raise ValueError(f"Controlled dependency for {suffix} is unavailable") from exc
-    return json.loads(frame.fillna("").to_json(orient="records", date_format="iso"))
+    records: object = json.loads(frame.fillna("").to_json(orient="records", date_format="iso"))
+    if not isinstance(records, list) or not all(isinstance(row, dict) for row in records):
+        raise ValueError("Tabular dataset conversion did not produce object rows")
+    return [dict(row) for row in records]
 
 
 def register_dataset(
@@ -360,7 +363,9 @@ def preview_import(
 def _normalize_row(
     dataset: GovernedDataset, row: dict[str, Any], mapping: dict[str, str], index: int
 ) -> dict[str, Any]:
-    get = lambda field: row.get(mapping[field], "") if field in mapping else ""  # noqa: E731
+    def get(field: str) -> Any:
+        return row.get(mapping[field], "") if field in mapping else ""
+
     result: dict[str, Any] = {
         "symbol": str(get("symbol")).strip().upper(),
         "trading_date": date.fromisoformat(str(get("trading_date"))[:10]).isoformat(),
@@ -837,7 +842,9 @@ def eod_research_workflow() -> dict[str, Any]:
 
 
 def workspace_summary(db: Session) -> dict[str, Any]:
-    count = lambda model: int(db.scalar(select(func.count()).select_from(model)) or 0)  # noqa: E731
+    def count(model: type[Any]) -> int:
+        return int(db.scalar(select(func.count()).select_from(model)) or 0)
+
     strategies_promoted = int(
         db.scalar(
             select(func.count())
