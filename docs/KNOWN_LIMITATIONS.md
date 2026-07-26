@@ -1,5 +1,13 @@
 # Known Limitations
 
+## Milestone 11 governed research data
+
+- No external DSE, DSEX, broker, or licensed-vendor file was supplied or downloaded; verification uses deterministic fixtures only.
+- XLSX and Parquet require their controlled pandas engines to be installed. Missing engines fail closed.
+- The portfolio analytics foundation does not infer missing realized returns, dividends, volatility, liquidity, or corporate actions.
+- Dataset research activation is not market truth, strategy promotion, campaign qualification, or trading authorization.
+- Official rules, fees, account terms, timestamps, corporate actions, and broker/API availability still require human-reviewed evidence.
+
 ## Authoritative evidence remains unavailable
 
 No authoritative DSE/broker/account evidence or approved real-market research dataset has been supplied. Registry and workflows are implemented, but all rule, fee, and risk matrices remain unapproved. Deterministic fixtures validate mechanics only and are neither real-market evidence nor profitability evidence. Operator reviewer's review is non-independent whenever he is also operator.

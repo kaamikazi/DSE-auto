@@ -1,5 +1,11 @@
 # Milestone 2 Verification Record
 
+## Milestone 11 governed research-data extension
+
+The extension is verified with deterministic, explicitly non-market fixtures. The focused suite covers safe archive extraction, duplicate file/batch rejection, schema mapping, OHLC validation, research-only activation/rollback and lineage, cross-source conflicts without averaging, DSEX labeling, corporate-action review, discontinuity detection, dated universe eligibility, read-only portfolio analysis, zero campaign/order/fill effects, and audit integrity.
+
+Final command results and exact commit IDs are recorded in the completion report. No downloaded public dataset, broker document, account credential, strategy promotion, campaign, session, proposal, order, transaction, or fill is introduced by this extension.
+
 ## Milestone 10 authoritative evidence readiness
 
 Verification covers persistent evidence migrations, immutable intake, duplicate/hash/type checks, conflicts/expiry, item-level rule and fee decisions, risk calibration, reviewer conflicts, dataset provenance/quality/corporate actions, fail-closed strategy readiness, and no operational activation. External evidence is reported missing rather than fabricated. Final command evidence is recorded in the completion report and generated approval pack.

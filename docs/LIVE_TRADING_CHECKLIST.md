@@ -1,5 +1,13 @@
 # Live Trading Checklist
 
+> Milestone 11 does not satisfy this checklist. Live trading remains disabled.
+
+- [ ] Independently license and validate production DSE/DSEX data.
+- [ ] Verify official timestamp semantics and corporate actions.
+- [ ] Approve each rule, fee, and risk item from authoritative evidence.
+- [ ] Confirm broker interface and automation permission in writing.
+- [ ] Complete real-market observation; deterministic fixtures and research backtests do not count.
+
 ## Authoritative evidence blockers
 
 - [ ] All 16 rules individually verified and approved in a new version.
