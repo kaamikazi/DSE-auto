@@ -10,3 +10,4 @@ python-multipart==0.0.32
 apscheduler==3.11.3
 psycopg[binary]==3.3.4
 redis==5.3.1
+pypdf==6.10.0

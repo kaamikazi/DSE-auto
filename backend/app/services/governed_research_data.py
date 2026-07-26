@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 from sqlalchemy import delete, func, select
@@ -62,7 +62,7 @@ TIMESTAMP_TRUST = {
 }
 ADJUSTMENT_STATUS = {"adjusted", "unadjusted", "mixed", "unknown"}
 ALLOWED_SUFFIXES = {".csv", ".zip", ".xlsx", ".json", ".parquet"}
-MAX_RAW_BYTES = 50 * 1024 * 1024
+MAX_RAW_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_FILE_BYTES = 25 * 1024 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 100 * 1024 * 1024
 MAX_ARCHIVE_FILES = 50
@@ -239,7 +239,9 @@ def register_dataset(
     safe_name = _safe_filename(filename)
     _reject_active_content(raw)
     if Path(safe_name).suffix.lower() == ".zip":
-        _archive_members(raw)
+        from app.services.public_source_collection import validate_archive_bytes
+
+        validate_archive_bytes(raw)
     digest = hashlib.sha256(raw).hexdigest()
     duplicate = db.scalar(select(GovernedDataset).where(GovernedDataset.raw_sha256 == digest))
     if duplicate:
@@ -562,7 +564,7 @@ def compare_sources(
 
 
 def _bar_valid(bar: NormalizedDailyBar) -> bool:
-    return bar.low <= min(bar.open, bar.close) and bar.high >= max(bar.open, bar.close)
+    return cast(bool, bar.low <= min(bar.open, bar.close) and bar.high >= max(bar.open, bar.close))
 
 
 def _relative_difference(left: Any, right: Any) -> Decimal | None:

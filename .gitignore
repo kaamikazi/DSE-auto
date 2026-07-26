@@ -50,6 +50,7 @@ data/backups/
 data/audit_archives/
 data/evidence/
 data/evidence_workspace/
+data/research_datasets/
 data/reports/
 data/process-state/
 data/cache/*
