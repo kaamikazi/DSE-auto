@@ -19,6 +19,8 @@
       "sha256": "a619a0ff80ce944414f94f6b1cd88e8ee186e83241a0934c2330036c190c6763",
       "stated_date_coverage": "1999-01 through 2025-04",
       "stated_symbol_coverage": "over 700 instruments",
+      "stated_row_count": 1684249,
+      "stated_symbol_count": 700,
       "adjustment_status": "unknown",
       "source_trust": "third_party_research",
       "timestamp_trust": "unknown"
