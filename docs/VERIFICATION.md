@@ -11,7 +11,7 @@ Verified 2026-07-26:
 | Check | Result |
 | --- | --- |
 | Focused governed-data and isolated recovery | PASS: 12 tests |
-| Full backend | PASS: 189 passed, 2 integration-marked skipped |
+| Full backend | PASS: 190 passed, 2 integration-marked skipped |
 | Python quality | PASS: 136 files formatted; Ruff clean; strict mypy clean across 95 sources |
 | Alembic | PASS: clean 0001→0012, 0012→0011, and 0011→0012 |
 | Frontend | PASS: clean install, TypeScript, ESLint, Next 16.2.12 production build |
