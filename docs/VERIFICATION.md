@@ -6,6 +6,19 @@ The extension is verified with deterministic, explicitly non-market fixtures. Th
 
 Final command results and exact commit IDs are recorded in the completion report. No downloaded public dataset, broker document, account credential, strategy promotion, campaign, session, proposal, order, transaction, or fill is introduced by this extension.
 
+Verified 2026-07-26:
+
+| Check | Result |
+| --- | --- |
+| Focused governed-data and isolated recovery | PASS: 12 tests |
+| Full backend | PASS: 189 passed, 2 integration-marked skipped |
+| Python quality | PASS: 136 files formatted; Ruff clean; strict mypy clean across 95 sources |
+| Alembic | PASS: clean 0001→0012, 0012→0011, and 0011→0012 |
+| Frontend | PASS: clean install, TypeScript, ESLint, Next 16.2.12 production build |
+| Dependencies and secrets | PASS: npm audit 0; pip-audit no known vulnerabilities (local package skipped); tracked secret scan clean |
+| Canonical audit | PASS: canonical chain valid; operational database was not migrated or mutated by dataset fixtures |
+| Safety boundary | PASS in deterministic tests: zero promotions, campaigns, orders, and transactions/fills |
+
 ## Milestone 10 authoritative evidence readiness
 
 Verification covers persistent evidence migrations, immutable intake, duplicate/hash/type checks, conflicts/expiry, item-level rule and fee decisions, risk calibration, reviewer conflicts, dataset provenance/quality/corporate actions, fail-closed strategy readiness, and no operational activation. External evidence is reported missing rather than fabricated. Final command evidence is recorded in the completion report and generated approval pack.
@@ -293,7 +306,7 @@ Verdict: **IMPLEMENTED AND VERIFIED; REVIEW-ONLY / NO ACTIVATION**.
 | Ruff / strict mypy | PASS: format/lint clean; strict mypy passed across 94 application/script sources |
 | Alembic `0011` | PASS: isolated clean base-to-`0011`, downgrade to `0010`, re-upgrade to `0011`; operational SQLite is at `0011` |
 | Frontend | PASS: clean `npm ci`, TypeScript, ESLint, and Next.js production build |
-| Dependency/security scans | PASS: Next.js patched to 15.5.21 with patched PostCSS/Sharp resolutions; `npm audit` found 0 vulnerabilities; `pip-audit` found no known dependency vulnerabilities; tracked secret scan found none |
+| Dependency/security scans | PASS at the time of that run; see the current Milestone 11 extension record above for the latest pinned versions and scan results |
 | Canonical audit | PASS: chain `c7aa6ed0-1288-417f-acbb-6ad4bfdd967c` valid with 159 canonical events; preserved legacy records unchanged |
 | Backup/isolated restore | PASS: `dse_autotrader_backup_20260724_210824.db`, SHA-256 `3BEB28C1B83982093C30F1FE625A6C174DE05D2A2A4B0A002AA36D40CA9839F0`; restored hash matched, `quick_check=ok`, revision `0011`, 16 cases, 6 packs, audit valid |
 | No-activation assertion | PASS: before/after preserved counts were identical—campaigns 3, sessions 5, orders 5, transactions/fills 2, promoted strategies 4; every Milestone 11 delta was zero |
