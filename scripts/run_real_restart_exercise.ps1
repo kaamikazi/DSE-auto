@@ -50,6 +50,7 @@ try {
   if (-not $passwordLine) { throw 'POSTGRES_PASSWORD is not configured' }
   $password = $passwordLine.Substring('POSTGRES_PASSWORD='.Length)
   $env:DATABASE_URL = "postgresql+psycopg://dse:$password@127.0.0.1:5432/$ValidationDatabase"
+  $env:DATABASE_ROLE = "simulation"
   $before = Get-RuntimeSnapshot
   @{before=$before; approved=$true; paper_only=$true} | ConvertTo-Json -Depth 8 |
     Set-Content -LiteralPath $evidencePath -Encoding utf8
@@ -117,5 +118,6 @@ try {
   if (-not $report.passed) { exit 2 }
 } finally {
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATABASE_ROLE -ErrorAction SilentlyContinue
   Pop-Location
 }

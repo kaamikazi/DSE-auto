@@ -8,12 +8,18 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.database_identity import REPOSITORY_ROOT, DatabaseRole, database_role_violation
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file="../.env", extra="ignore", case_sensitive=True)
+    model_config = SettingsConfigDict(
+        env_file=REPOSITORY_ROOT / ".env", extra="ignore", case_sensitive=True
+    )
 
     APP_ENV: Literal["development", "test", "production"] = "development"
     DATABASE_URL: str = "sqlite:///./data/dse_autotrader.db"
+    DATABASE_ROLE: DatabaseRole = "operational"
+    ALLOW_DATABASE_ROLE_OVERRIDE: bool = False
     REDIS_URL: str | None = None
     DATABASE_POOL_SIZE: int = Field(default=10, ge=1, le=100)
     DATABASE_MAX_OVERFLOW: int = Field(default=20, ge=0, le=200)
@@ -70,6 +76,14 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def fail_closed_live_configuration(self) -> Settings:
+        role_error = database_role_violation(
+            app_env=self.APP_ENV,
+            database_role=self.DATABASE_ROLE,
+            database_url=self.DATABASE_URL,
+            allow_override=self.ALLOW_DATABASE_ROLE_OVERRIDE,
+        )
+        if role_error:
+            raise ValueError(role_error)
         if self.TRADING_MODE == "live" or self.LIVE_TRADING_ENABLED:
             raise ValueError(
                 "Live trading is disabled; use TRADING_MODE=paper and LIVE_TRADING_ENABLED=false"

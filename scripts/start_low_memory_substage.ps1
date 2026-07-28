@@ -63,6 +63,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'The unchanged 3 GiB pre-start gate failed' }
 
   $env:DATABASE_URL = "postgresql+psycopg://dse:$env:POSTGRES_PASSWORD@127.0.0.1:5432/$ValidationDatabase"
+  $env:DATABASE_ROLE = "simulation"
   Push-Location backend
   try {
     .\.venv\Scripts\python.exe ..\scripts\operator.py verify-audit
@@ -83,5 +84,6 @@ try {
   throw
 } finally {
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATABASE_ROLE -ErrorAction SilentlyContinue
   Pop-Location
 }

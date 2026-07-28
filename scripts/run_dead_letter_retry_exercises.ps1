@@ -58,6 +58,7 @@ try {
   if (-not $passwordLine) { throw 'POSTGRES_PASSWORD is not configured' }
   $password = $passwordLine.Substring('POSTGRES_PASSWORD='.Length)
   $env:DATABASE_URL = "postgresql+psycopg://dse:$password@127.0.0.1:5432/$ValidationDatabase"
+  $env:DATABASE_ROLE = "simulation"
   $env:REDIS_URL = 'redis://127.0.0.1:6379/0'
   $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
   $correlation = [guid]::NewGuid().ToString()
@@ -197,6 +198,7 @@ print(json.dumps({'first_state': first.state if first else None, 'second_state':
   Write-Output ($result | ConvertTo-Json -Depth 12)
 } finally {
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATABASE_ROLE -ErrorAction SilentlyContinue
   Remove-Item Env:REDIS_URL -ErrorAction SilentlyContinue
   Pop-Location
 }

@@ -1,15 +1,17 @@
 import os
+import tempfile
 from collections.abc import Generator
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-TEST_DB = Path(__file__).parent / "test.db"
+TEST_DB = Path(tempfile.gettempdir()) / f"dse_autotrader_pytest_{os.getpid()}.db"
 os.environ.update(
     {
         "APP_ENV": "test",
         "DATABASE_URL": f"sqlite:///{TEST_DB.as_posix()}",
+        "DATABASE_ROLE": "test",
         "TRADING_MODE": "paper",
         "LIVE_TRADING_ENABLED": "false",
         "DATA_PRIMARY_PROVIDER": "mock",

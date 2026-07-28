@@ -5,11 +5,15 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.core.config import get_settings
 from app.core.database import Base
+from app.core.database_identity import resolve_database_url
 from app.models import *  # noqa: F403
 
 config = context.config
 database_url_override = config.attributes.get("database_url_override")
-config.set_main_option("sqlalchemy.url", str(database_url_override or get_settings().DATABASE_URL))
+config.set_main_option(
+    "sqlalchemy.url",
+    resolve_database_url(str(database_url_override or get_settings().DATABASE_URL)),
+)
 if config.config_file_name:
     fileConfig(config.config_file_name)
 target_metadata = Base.metadata

@@ -9,6 +9,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
+from app.core.database_identity import resolve_database_url
 
 
 class Base(DeclarativeBase):
@@ -16,13 +17,14 @@ class Base(DeclarativeBase):
 
 
 settings = get_settings()
-connect_args = {"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+resolved_database_url = resolve_database_url(settings.DATABASE_URL)
+connect_args = {"check_same_thread": False} if resolved_database_url.startswith("sqlite") else {}
 engine_options: dict[str, Any] = {
     "connect_args": connect_args,
     "pool_pre_ping": True,
     "pool_recycle": settings.DATABASE_POOL_RECYCLE_SECONDS,
 }
-if settings.DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://")):
+if resolved_database_url.startswith(("postgresql://", "postgresql+psycopg://")):
     engine_options.update(
         {
             "pool_size": settings.DATABASE_POOL_SIZE,
@@ -31,7 +33,7 @@ if settings.DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://")):
             "isolation_level": settings.DATABASE_ISOLATION_LEVEL,
         }
     )
-engine = create_engine(settings.DATABASE_URL, **engine_options)
+engine = create_engine(resolved_database_url, **engine_options)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 

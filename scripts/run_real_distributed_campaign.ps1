@@ -73,6 +73,7 @@ try {
   $env:POSTGRES_PASSWORD = $password
   $env:POSTGRES_VALIDATION_DATABASE = $ValidationDatabase
   $env:DATABASE_URL = "postgresql+psycopg://dse:$password@127.0.0.1:5432/$ValidationDatabase"
+  $env:DATABASE_ROLE = "simulation"
   $env:REDIS_URL = 'redis://127.0.0.1:6379/0'
   $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
   $campaignName = "m9-real-distributed-$stamp"
@@ -150,6 +151,7 @@ try {
   Write-Output ($final | ConvertTo-Json -Depth 12)
 } finally {
   Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:DATABASE_ROLE -ErrorAction SilentlyContinue
   Remove-Item Env:REDIS_URL -ErrorAction SilentlyContinue
   Remove-Item Env:POSTGRES_VALIDATION_DATABASE -ErrorAction SilentlyContinue
   Pop-Location

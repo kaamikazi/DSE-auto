@@ -52,6 +52,7 @@ services:
     env_file: .env
     environment: &backend_environment
       APP_ENV: production
+      DATABASE_ROLE: operational
       DATABASE_URL: postgresql+psycopg://dse:${POSTGRES_PASSWORD}@db:5432/dse_autotrader
       REDIS_URL: redis://redis:6379/0
       SCHEDULER_ENABLED: "false"
