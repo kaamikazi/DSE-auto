@@ -1135,6 +1135,8 @@ def sha256_file(path: Path) -> str:
 
 
 def review_html(summary: dict[str, Any]) -> str:
+    from app.services.report_provenance import html_provenance
+
     inventories = "".join(
         f"<tr><td>{escape(str(row['logical_name']))}</td><td>{row['observed_row_count']}</td>"
         f"<td>{row['unique_symbols']}</td><td>{row['duplicate_row_count']}</td>"
@@ -1145,6 +1147,7 @@ def review_html(summary: dict[str, Any]) -> str:
         "<!doctype html><html><head><meta charset='utf-8'><title>DSE candidate review</title></head>"
         "<body><h1>Canonical DSE research candidate - human review</h1>"
         "<p><strong>INACTIVE - HUMAN APPROVAL REQUIRED - QUALIFICATION 0/60</strong></p>"
+        f"{html_provenance(summary['provenance'])}"
         "<table><tr><th>Dataset</th><th>Rows</th><th>Symbols</th><th>Duplicates</th>"
         f"<th>Invalid OHLC</th></tr>{inventories}</table>"
         f"<pre>{escape(json.dumps(summary['canonical_candidate_counts'], indent=2))}</pre>"

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
 from app.core.config import get_settings  # noqa: E402
-from app.core.database import SessionLocal  # noqa: E402
+from app.core.database import SessionLocal, resolved_database_url  # noqa: E402
 from app.models import (  # noqa: E402
     DatasetImportRun,
     ExtractedClaim,
@@ -51,6 +51,10 @@ from app.services.canonical_research_candidate import (  # noqa: E402
     write_csv,
 )
 from app.services.authoritative_evidence import canonical_hash  # noqa: E402
+from app.services.report_provenance import (  # noqa: E402
+    build_report_provenance,
+    markdown_provenance,
+)
 
 ZIP_UNADJUSTED = (
     "Dhaka Stock Exchange End-of-Day Financial Dataset/Full Raw Data/UnAdjusted.csv"
@@ -498,11 +502,17 @@ def _markdown(summary: dict[str, Any]) -> str:
         "Raw files were hash-verified before and after processing and were not modified. Conflicting",
         "values were not averaged, deleted, or silently preferred.",
         "",
-        "## Inventory",
-        "",
-        "| Dataset | Rows | Symbols | Duplicates | Invalid OHLC | Date coverage |",
-        "|---|---:|---:|---:|---:|---|",
     ]
+    lines.extend(markdown_provenance(summary["provenance"]).rstrip().splitlines())
+    lines.extend(
+        [
+            "",
+            "## Inventory",
+            "",
+            "| Dataset | Rows | Symbols | Duplicates | Invalid OHLC | Date coverage |",
+            "|---|---:|---:|---:|---:|---|",
+        ]
+    )
     for item in summary["dataset_inventory"]:
         lines.append(
             f"| {item['logical_name']} | {item['observed_row_count']} | {item['unique_symbols']} | "
@@ -570,6 +580,13 @@ def main() -> int:
             raise RuntimeError("Canonical audit chain is invalid")
         before = _operational_state(app_db)
         sources = _registered_sources(app_db)
+        provenance = build_report_provenance(
+            app_db,
+            database_role=get_settings().DATABASE_ROLE,
+            environment=get_settings().APP_ENV,
+            database_url=resolved_database_url,
+            dataset_ids=[source.dataset_id for source in sources],
+        )
     run_payload = {
         "sources": sorted({item.source_hash for item in sources}),
         "version": TRANSFORMATION_VERSION,
@@ -691,6 +708,7 @@ def main() -> int:
         "Approve the canonical quality policy before any research activation.",
     ]
     summary = {
+        "provenance": provenance,
         "run_id": run_id,
         "transformation_version": TRANSFORMATION_VERSION,
         "tolerance": str(tolerance),
@@ -762,6 +780,7 @@ def main() -> int:
         if any(final_delta.values()):
             raise RuntimeError(f"Operational state changed: {final_delta}")
     audit_linkage = {
+        "provenance": provenance,
         "audit_event_id": event.id,
         "pack_hash": pack_hash,
         "active": False,
@@ -769,6 +788,7 @@ def main() -> int:
     _write_json(output / "audit_linkage.json", audit_linkage)
     files = sorted(path for path in output.iterdir() if path.name != "manifest.json")
     manifest = {
+        "provenance": provenance,
         "run_id": run_id,
         "generated_at": datetime.now(UTC).isoformat(),
         "files": {
