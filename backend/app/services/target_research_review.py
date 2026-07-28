@@ -495,6 +495,7 @@ def build_target_subset(
             tier = "tier_3_low_confidence_research_only"
         lineage = [
             {
+                "source_name": row["source_name"],
                 "source_dataset_id": row["source_dataset_id"],
                 "source_file_hash": row["source_hash"],
                 "source_row_identifier": row["source_row_id"],
