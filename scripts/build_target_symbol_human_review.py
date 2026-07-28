@@ -349,7 +349,10 @@ def main() -> int:
     )
     calendar = build_calendar_review(candidate)
     corporate = build_corporate_action_review(
-        action_audit["rows"], subset["candidate_rows"]
+        candidate,
+        action_audit["rows"],
+        subset["candidate_rows"],
+        source_urls=source_urls,
     )
     policies = provisional_policies()
     conflicts_by_symbol = dict(Counter(row["symbol"] for row in unexplained["rows"]))
@@ -363,7 +366,6 @@ def main() -> int:
         candidate,
         subset=subset,
         unexplained_rows=unexplained["rows"],
-        volume_rows=volume["rows"],
         corporate_rows=corporate,
         source_urls=source_urls,
     )

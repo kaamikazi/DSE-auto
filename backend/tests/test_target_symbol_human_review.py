@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from app.services.canonical_research_candidate import CanonicalCandidateBuilder,
 from app.services.target_symbol_human_review import (
     analyze_volume_ratios,
     build_calendar_review,
+    build_corporate_action_review,
     build_review_samples,
     build_source_hierarchy_review,
     build_unexplained_conflict_review,
@@ -208,7 +210,6 @@ def test_review_sampling_includes_raw_held_evidence(tmp_path: Path) -> None:
         builder.db,
         subset=subset,
         unexplained_rows=[],
-        volume_rows=[],
         corporate_rows=[],
         source_urls={"hash-a": "https://example.invalid/a"},
     )
@@ -216,6 +217,31 @@ def test_review_sampling_includes_raw_held_evidence(tmp_path: Path) -> None:
     assert held
     assert held[0]["raw_evidence"][0]["source_hash"] in {"hash-a", "hash-b"}
     assert held[0]["raw_evidence"][0]["source_row_id"] in {"a:1", "b:1"}
+    volume = [row for row in samples if row["sample_type"] == "largest_volume_disagreement"]
+    assert volume
+    assert volume[0]["raw_source_a"]["source_hash"] == "hash-a"
+    builder.close()
+
+
+def test_corporate_action_review_includes_raw_file_lineage(tmp_path: Path) -> None:
+    builder = _builder(tmp_path)
+    rows = build_corporate_action_review(
+        builder.db,
+        [
+            {
+                "normalized_symbol": "ACI",
+                "trading_date": "2024-01-01",
+                "source_dataset_id": "a",
+                "evidence": json.dumps(["a:1", "a:1"]),
+                "revised_classification": "insufficient_evidence",
+            }
+        ],
+        [],
+        source_urls={"hash-a": "https://example.invalid/a"},
+    )
+    assert rows[0]["source_file_hash"] == "hash-a"
+    assert rows[0]["source_url"] == "https://example.invalid/a"
+    assert rows[0]["automatic_approval"] is False
     builder.close()
 
 
@@ -247,7 +273,6 @@ def test_calendar_and_sampling_preserve_long_gap_boundaries(tmp_path: Path) -> N
         builder.db,
         subset={"candidate_rows": candidates, "held_rows": []},
         unexplained_rows=[],
-        volume_rows=[],
         corporate_rows=[],
         source_urls={"hash-a": "https://example.invalid/a"},
     )

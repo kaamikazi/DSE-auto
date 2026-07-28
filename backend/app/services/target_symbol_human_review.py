@@ -698,7 +698,11 @@ def build_calendar_review(connection: sqlite3.Connection) -> list[dict[str, Any]
 
 
 def build_corporate_action_review(
-    action_rows: list[dict[str, Any]], candidate_rows: list[dict[str, Any]]
+    connection: sqlite3.Connection,
+    action_rows: list[dict[str, Any]],
+    candidate_rows: list[dict[str, Any]],
+    *,
+    source_urls: dict[str, str],
 ) -> list[dict[str, Any]]:
     candidate_dates = {(str(row["symbol"]), str(row["trading_date"])) for row in candidate_rows}
     results: list[dict[str, Any]] = []
@@ -713,12 +717,21 @@ def build_corporate_action_review(
             classification = "suspension_resumption_candidate"
         else:
             classification = "insufficient_evidence"
+        evidence_row_ids = json.loads(row["evidence"])
+        source_record = connection.execute(
+            """SELECT source_hash FROM observations WHERE source_dataset_id=?
+            AND source_row_id=? LIMIT 1""",
+            (row["source_dataset_id"], str(evidence_row_ids[0])),
+        ).fetchone()
+        source_hash = str(source_record[0]) if source_record else None
         results.append(
             {
                 **row,
                 "affects_candidate_row": affects_candidate,
                 "human_classification": classification,
                 "evidence_links": list(OFFICIAL_REVIEW_EVIDENCE),
+                "source_file_hash": source_hash,
+                "source_url": source_urls.get(source_hash) if source_hash else None,
                 "confirmed_by_official_evidence": False,
                 "review_status": "under_review",
                 "automatic_approval": False,
@@ -805,7 +818,6 @@ def build_review_samples(
     *,
     subset: dict[str, Any],
     unexplained_rows: list[dict[str, Any]],
-    volume_rows: list[dict[str, Any]],
     corporate_rows: list[dict[str, Any]],
     source_urls: dict[str, str],
 ) -> list[dict[str, Any]]:
@@ -835,13 +847,33 @@ def build_review_samples(
             for row in unexplained_rows
             if row["symbol"] == symbol
         )
-        symbol_volumes = [row for row in volume_rows if row["symbol"] == symbol]
-        samples.extend(
-            {"sample_type": "largest_volume_disagreement", **row}
-            for row in sorted(symbol_volumes, key=lambda row: Decimal(row["ratio"]), reverse=True)[
-                :20
-            ]
-        )
+        for comparison in connection.execute(
+            """SELECT * FROM cross_source_comparisons WHERE normalized_symbol=?
+            AND adjustment_a=adjustment_b AND tolerance_result='outside_tolerance'
+            ORDER BY CAST(json_extract(percentage_differences,'$.volume') AS REAL) DESC
+            LIMIT 20""",
+            (symbol,),
+        ):
+            item = dict(comparison)
+            item["values_a"] = json.loads(item["values_a"])
+            item["values_b"] = json.loads(item["values_b"])
+            item["absolute_differences"] = json.loads(item["absolute_differences"])
+            item["percentage_differences"] = json.loads(item["percentage_differences"])
+            item["raw_source_a"] = _raw_evidence(
+                connection,
+                symbol=symbol,
+                trading_date=str(item["trading_date"]),
+                source_name=str(item["source_name_a"]),
+                source_urls=source_urls,
+            )
+            item["raw_source_b"] = _raw_evidence(
+                connection,
+                symbol=symbol,
+                trading_date=str(item["trading_date"]),
+                source_name=str(item["source_name_b"]),
+                source_urls=source_urls,
+            )
+            samples.append({"sample_type": "largest_volume_disagreement", **item})
         samples.extend(
             {"sample_type": "corporate_action_candidate", **row}
             for row in corporate_rows
