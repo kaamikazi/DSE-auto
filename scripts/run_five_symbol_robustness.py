@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select, text
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -64,6 +64,9 @@ EXTENSION_NAME = "batbc-squrpharma-t2-extension-5357a454f66e1ea7"
 EXTENSION_HASH = "4470633c8d62c627357e6c0a6472466142e7a6539f7100d9de677827dda8c882"
 CODE_HASH = "b3b8e3bbce398d084b1b971332876861745e40f11600d83e9435e4c5e4ecb3b3"
 PARAMETER_HASH = "51d34977e7e67cb3045ec624e7e0f6474fb24390f6427fa1d0f307e4ee7df13e"
+PARENT_APPROVAL_PACK_HASH = (
+    "28f44bd78a9e57e0e00ecf56046f5411e18f48508585ef4cbae0ad3e52207235"
+)
 PROTECTED = (ValidationCampaign, PaperSession, Signal, Order, Transaction)
 
 
@@ -135,6 +138,55 @@ def expected_identity() -> dict[str, Any]:
         "extension_status": "research_dataset_active",
         "promotion_status": "blocked",
         "campaign_eligibility": False,
+    }
+
+
+def source_exclusions() -> tuple[dict[str, list[str]], dict[str, Any]]:
+    for candidate in sorted(
+        (ROOT / "reports" / "target_subset_approval").glob("*/provisional_subset.json"),
+        reverse=True,
+    ):
+        manifest = json.loads(
+            candidate.with_name("manifest.json").read_text(encoding="utf-8")
+        )
+        if manifest.get("manifest_hash") != PARENT_APPROVAL_PACK_HASH:
+            continue
+        parent = json.loads(candidate.read_text(encoding="utf-8"))
+        break
+    else:
+        raise RuntimeError("Preserved parent exclusion ledger is unavailable")
+    dates: dict[str, list[str]] = {symbol: [] for symbol in FIVE_SYMBOLS}
+    for row in parent["ledger"]:
+        if (
+            row["status"] == "held_for_corporate_action"
+            and row["adjustment_status"] == "adjusted"
+        ):
+            dates[str(row["symbol"])].append(str(row["date"]))
+    extension_path = (
+        ROOT
+        / "reports"
+        / "pilot_research_extension"
+        / EXTENSION_NAME
+        / "activation_result.json"
+    )
+    extension = json.loads(extension_path.read_text(encoding="utf-8"))
+    return dates, {
+        "parent": {
+            "ledger": str(candidate.relative_to(ROOT)),
+            "status_counts": parent["candidate_status_counts"],
+            "corporate_action_adjusted_dates_by_symbol": {
+                symbol: sorted(set(values))
+                for symbol, values in dates.items()
+                if values
+            },
+        },
+        "extension": {
+            "evidence": str(extension_path.relative_to(ROOT)),
+            "excluded_by_symbol_and_disposition": extension["summary"][
+                "excluded_by_symbol_and_disposition"
+            ],
+            "note": "T3 alternatives, invalid/duplicate records, and lifecycle holds are not synthesized as missing sessions or corporate actions.",
+        },
     }
 
 
@@ -312,10 +364,36 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             ),
         }
     )
+    chart_sql = (
+        "SELECT scope, net_return_percent, drawdown_percent "
+        "FROM baseline ORDER BY sort_order"
+    )
+    chart_engine = create_engine("sqlite://")
+    with chart_engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE baseline (sort_order INTEGER, scope TEXT, net_return_percent REAL, drawdown_percent REAL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO baseline VALUES (:sort_order, :scope, :net_return_percent, :drawdown_percent)"
+            ),
+            [{"sort_order": index, **row} for index, row in enumerate(rows)],
+        )
+        rows = [dict(row._mapping) for row in connection.execute(text(chart_sql))]
+    chart_engine.dispose()
     source = {
         "id": "research_result",
         "label": "Five-symbol robustness result",
         "path": "research_result.json",
+        "query": {
+            "sql": chart_sql,
+            "description": "Projection of the Python-produced baseline summary through an in-memory SQLite table; this query does not perform the backtest.",
+            "engine": "sqlite",
+            "language": "sql",
+            "executed_at": generated,
+        },
     }
     narrative = markdown_report(payload)
     return {
@@ -346,12 +424,7 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             ],
             "sources": [source],
             "blocks": [
-                {
-                    "id": "narrative",
-                    "type": "markdown",
-                    "markdown": narrative,
-                    "sourceId": "research_result",
-                },
+                {"id": "narrative", "type": "markdown", "body": narrative},
                 {"id": "returns", "type": "chart", "chartId": "baseline_returns"},
             ],
         },
@@ -364,12 +437,89 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
     }
 
 
+def repair_evidence(output: Path) -> None:
+    payload_path = output / "research_result.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    parent_path = ROOT / "data" / "research_datasets" / f"{PARENT_NAME}.jsonl"
+    extension_path = ROOT / "data" / "research_datasets" / f"{EXTENSION_NAME}.jsonl"
+    bars, validation = validate_combined_datasets(parent_path, extension_path)
+    excluded_dates, exclusions = source_exclusions()
+    full = run_portfolio(bars)
+    payload["corporate_action_sensitivity"] = corporate_action_analysis(
+        bars, excluded_dates, full["net_results"]
+    )
+    payload["source_exclusions"] = exclusions
+    payload["pre_run_validation"]["source_exclusions"] = exclusions
+    payload["pre_run_validation"]["mandatory_passed"] = validation["mandatory_passed"]
+    for symbol in PARENT_SYMBOLS:
+        payload["baseline"]["symbols"][symbol]["missing_data_exclusions"] = len(
+            excluded_dates[symbol]
+        )
+    payload_path.write_text(
+        json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8"
+    )
+    (output / "pre_run_validation.json").write_text(
+        json.dumps(payload["pre_run_validation"], indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    (output / "report.md").write_text(markdown_report(payload), encoding="utf-8")
+    generated = str(
+        json.loads((output / "artifact.json").read_text(encoding="utf-8"))["manifest"][
+            "generatedAt"
+        ]
+    )
+    (output / "artifact.json").write_text(
+        json.dumps(artifact(payload, generated), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+
+
+def finalize_evidence(output: Path, html_status: str) -> None:
+    manifest_path = output / "manifest.json"
+    prior = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest = {
+        "files": [
+            {
+                "name": path.name,
+                "bytes": path.stat().st_size,
+                "sha256": sha256_file(path),
+            }
+            for path in sorted(output.iterdir())
+            if path.is_file() and path.name != "manifest.json"
+        ],
+        "html_status": html_status,
+        "protected_counts_before": prior["protected_counts_before"],
+        "protected_counts_after": prior["protected_counts_after"],
+        "strategy_state_before": prior["strategy_state_before"],
+        "strategy_state_after": prior["strategy_state_after"],
+    }
+    manifest["manifest_hash"] = canonical_hash(manifest)
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--authorization-file", type=Path, required=True)
+    parser.add_argument("--authorization-file", type=Path)
     parser.add_argument("--operator", default="operator")
-    parser.add_argument("--expected-head", required=True)
+    parser.add_argument("--expected-head")
+    parser.add_argument("--repair-output", type=Path)
+    parser.add_argument("--finalize-output", type=Path)
+    parser.add_argument(
+        "--html-status", default="builder_structural_only_browser_qa_unavailable"
+    )
     args = parser.parse_args()
+    if args.repair_output:
+        repair_evidence(args.repair_output)
+        return 0
+    if args.finalize_output:
+        finalize_evidence(args.finalize_output, args.html_status)
+        return 0
+    if args.authorization_file is None or args.expected_head is None:
+        parser.error(
+            "--authorization-file and --expected-head are required for execution"
+        )
     settings = get_settings()
     if (
         settings.TRADING_MODE,
@@ -397,6 +547,8 @@ def main() -> int:
     ):
         raise RuntimeError("Dataset file hash mismatch")
     bars, validation = validate_combined_datasets(parent_path, extension_path)
+    excluded_dates, exclusions = source_exclusions()
+    validation["source_exclusions"] = exclusions
     events: list[dict[str, str]] = []
     with SessionLocal() as db:
         if not verify_audit_chain(db):
@@ -446,7 +598,7 @@ def main() -> int:
             db, events, "strategy.five_symbol_data_validated", validation, args.operator
         )
 
-    excluded = {"GP": 0, "ACI": 0, "BRACBANK": 0, "BATBC": 0, "SQURPHARMA": 0}
+    excluded = {symbol: len(excluded_dates[symbol]) for symbol in FIVE_SYMBOLS}
     full = run_portfolio(bars)
     summaries = symbol_summaries(full, bars, excluded)
     best = deterministic_best(summaries)
@@ -480,9 +632,7 @@ def main() -> int:
         ),
         "combined": result_metrics(full),
     }
-    corporate = corporate_action_analysis(
-        bars, {s: [] for s in FIVE_SYMBOLS}, full["net_results"]
-    )
+    corporate = corporate_action_analysis(bars, excluded_dates, full["net_results"])
     payload: dict[str, Any] = {
         "identity": identity,
         "authorization_sha256": authorization_hash,
@@ -539,6 +689,7 @@ def main() -> int:
             "lifecycle_evidence": "pending; observed research windows are not official listing dates",
         },
         "corporate_action_sensitivity": corporate,
+        "source_exclusions": exclusions,
         "missing_evidence": [
             "DSEX benchmark",
             "official lifecycle dates",
