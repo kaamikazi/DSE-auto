@@ -1,5 +1,9 @@
 # Research-only target dataset activation
 
+> The GP/ACI/BRACBANK dataset documented here remains unchanged. BATBC and
+> SQURPHARMA are registered in a separate linked T2-only extension documented
+> in [BATBC/SQURPHARMA Research Extension](PILOT_RESEARCH_EXTENSION.md).
+
 Status: **RESEARCH DATASET ACTIVE**  
 Qualification: **0/60**  
 Version: `gp-aci-bracbank-research-f24a48cb729e8a65`  
