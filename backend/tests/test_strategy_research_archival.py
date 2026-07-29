@@ -163,3 +163,4 @@ def test_runner_guards_no_operational_side_effects_and_audit() -> None:
     assert "assert_archived_state" in text
     assert "run_portfolio(" not in text
     assert "BacktestRequest" not in text
+    assert '"surface": "report"' in text

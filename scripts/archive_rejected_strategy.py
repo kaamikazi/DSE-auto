@@ -213,6 +213,7 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
         },
     ]
     return {
+        "surface": "report",
         "manifest": {
             "surface": "report",
             "version": 1,
@@ -285,7 +286,10 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             "datasets": {
                 "baselines": baselines,
                 "matrix_dimensions": matrix_dimensions,
-            }
+            },
+            "generatedAt": generated,
+            "status": "ready",
+            "version": 1,
         },
     }
 
