@@ -1,5 +1,12 @@
 # Five-Symbol Conflict-Methodology Audit
 
+> Historical methodology note: the table below was the comparison-correction
+> stage and was not a final row-disposition equation. The subsequent
+> [pilot final-disposition review](PILOT_FINAL_DISPOSITION_REVIEW.md) separates
+> row and pair grains, includes invalid rows, splits same-source duplicate
+> conflicts from genuine cross-source conflicts, and removes T1 status where
+> derivation independence is unproven.
+
 This work is a read-only methodology correction for `IDLC`, `LANKABAFIN`,
 `BATBC`, `SQURPHARMA`, and `POWERGRID`. It grants no dataset or strategy
 activation. Qualification remains **0/60**.
