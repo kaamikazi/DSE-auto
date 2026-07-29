@@ -202,6 +202,11 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             "path": "archived_strategy_decision.json",
         },
         {
+            "id": "benchmark",
+            "label": "Immutable archived benchmark contract",
+            "path": "archived_benchmark_manifest.json",
+        },
+        {
             "id": "matrix",
             "label": "Predeclared bounded experiment matrix",
             "path": "bounded_experiment_matrix.json",
@@ -215,17 +220,12 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             "generatedAt": generated,
             "sources": sources,
             "blocks": [
-                {
-                    "id": "summary",
-                    "type": "markdown",
-                    "body": body,
-                    "sourceId": "archive",
-                },
+                {"id": "summary", "type": "markdown", "body": body},
                 {
                     "id": "baseline_note",
                     "type": "markdown",
                     "body": "## Simpler benchmarks frame the rejection\n\nNet return alone does not determine preference, but the archived result trails both equal-weight buy-and-hold and monthly rebalancing while remaining concentrated in BRACBANK.",
-                    "sourceId": "archive",
+                    "sourceId": "benchmark",
                 },
                 {"id": "baseline_chart", "type": "chart", "chartId": "baselines"},
                 {
@@ -242,7 +242,7 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
                     "type": "bar",
                     "title": "Net return across archived predeclared baselines",
                     "dataset": "baselines",
-                    "sourceId": "archive",
+                    "sourceId": "benchmark",
                     "valueFormat": ".2f",
                     "encodings": {
                         "x": {
