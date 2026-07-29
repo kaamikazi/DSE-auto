@@ -20,10 +20,13 @@ from app.models import (
 from app.services import pilot_conflict_methodology
 from app.services.audit import verify_audit_chain
 from app.services.pilot_conflict_methodology import (
+    FINAL_DISPOSITIONS,
     PILOT_SYMBOLS,
+    TIER_3_REASON_CODES,
     build_pilot_methodology_audit,
     classify_corporate_action_candidate,
     classify_existing_conflict,
+    classify_final_disposition,
     collapse_duplicate_group,
     comparison_eligibility,
 )
@@ -256,6 +259,18 @@ def test_candidate_rebuild_and_review_queue_are_inactive_and_manageable(tmp_path
     assert result["totals"]["review_queue_manageable"] is True
     assert result["totals"]["human_review_queue"] == 5
     assert result["totals"]["exact_duplicates_collapsed"] == 1
+    assert result["totals"]["reconciliation_equation"]["balanced"] is True
+    assert result["totals"]["raw_source_rows"] != result["totals"]["comparison_pairs"]
+    assert all(
+        sum(row["final_disposition_counts"].values()) == row["logical_rows"]
+        for row in result["symbol_summary"]
+    )
+    assert all(row["final_disposition"] in FINAL_DISPOSITIONS for row in result["candidates"])
+    assert all(
+        row["diagnostic_reason_codes"]
+        for row in result["candidates"]
+        if row["final_disposition"] == "tier_3_research_only"
+    )
     assert all(row["active"] is False for row in result["candidates"])
     assert all(
         row["lifecycle_status"] == "lifecycle_evidence_pending"
@@ -318,3 +333,93 @@ def test_duplicate_group_id_is_deterministic() -> None:
         ).encode()
     ).hexdigest()
     assert result["duplicate_group_id"] == expected
+
+
+def _disposition(**overrides: object) -> tuple[str, list[str]]:
+    values: dict[str, object] = {
+        "accepted": True,
+        "complete_lineage": True,
+        "valid_ohlc": True,
+        "known_adjustment": True,
+        "high_confidence_mapping": True,
+        "independent_agreement": False,
+        "high_quality_source": False,
+        "unresolved_conflict": False,
+        "lifecycle_hold": False,
+        "corporate_action_hold": False,
+        "duplicate_conflict": False,
+        "tier_3_reasons": ("provenance_weaker",),
+    }
+    values.update(overrides)
+    return classify_final_disposition(**values)  # type: ignore[arg-type]
+
+
+def test_machine_testable_tier_one_and_tier_two_rules() -> None:
+    assert _disposition(independent_agreement=True)[0] == "tier_1_cross_source_confirmed"
+    assert _disposition(high_quality_source=True)[0] == "tier_2_single_source_high_quality"
+    assert _disposition(known_adjustment=False)[0] == "tier_3_research_only"
+
+
+def test_tier_three_reason_is_required_and_activation_is_rejected(tmp_path: Path) -> None:
+    assert _disposition(tier_3_reasons=())[1] == ["other"]
+    assert set(TIER_3_REASON_CODES) >= {"other", "adjustment_documentation_incomplete"}
+    database = tmp_path / "pilot.sqlite3"
+    conflict = tmp_path / "conflicts.json"
+    quality = tmp_path / "quality.json"
+    _create_pilot_database(database)
+    conflict.write_text("[]", encoding="utf-8")
+    quality.write_text(json.dumps([{"logical_name": "source-a", "score": 80}]), encoding="utf-8")
+    result = build_pilot_methodology_audit(database, conflict, quality)
+    policy = result["proposed_activation_policy"]
+    assert policy["status"] == "REJECTED / NOT GRANTED"
+    assert policy["active"] is False
+    assert "tier_3_research_only" in policy["ineligible_by_default"]
+
+
+def test_holds_and_rejections_are_mutually_exclusive() -> None:
+    cases = {
+        "held_genuine_conflict": {"unresolved_conflict": True},
+        "rejected_duplicate_conflict": {"duplicate_conflict": True},
+        "held_lifecycle": {"lifecycle_hold": True},
+        "held_corporate_action": {"corporate_action_hold": True},
+        "held_mapping": {"high_confidence_mapping": False},
+        "rejected_invalid": {"accepted": False},
+        "rejected_other": {"complete_lineage": False},
+    }
+    for expected, overrides in cases.items():
+        assert _disposition(**overrides)[0] == expected
+
+
+def test_nine_independent_approval_records_and_priority_readiness(tmp_path: Path) -> None:
+    database = tmp_path / "pilot.sqlite3"
+    conflict = tmp_path / "conflicts.json"
+    quality = tmp_path / "quality.json"
+    _create_pilot_database(database)
+    with sqlite3.connect(database) as db:
+        db.execute(
+            "UPDATE observations SET close='11', value_fingerprint='changed' "
+            "WHERE source_dataset_id='source-b' AND normalized_symbol IN "
+            "('IDLC','LANKABAFIN','BATBC','POWERGRID')"
+        )
+        db.commit()
+    conflict.write_text("[]", encoding="utf-8")
+    quality.write_text(
+        json.dumps(
+            [
+                {"logical_name": "source-a", "score": 80},
+                {"logical_name": "source-b", "score": 80},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = build_pilot_methodology_audit(database, conflict, quality)
+    approvals = result["human_review_queue"]
+    assert len(approvals) == 9
+    assert len({row["approval_record_id"] for row in approvals}) == 9
+    assert len(result["conflict_approval_records"]) == 4
+    assert len(result["lifecycle_approval_records"]) == 5
+    assert all(row["reviewer_decision"] == "" for row in approvals)
+    assert all(row["operator_decision"] == "" for row in approvals)
+    priority = result["symbol_readiness"][:2]
+    assert [row["symbol"] for row in priority] == ["BATBC", "SQURPHARMA"]
+    assert all(row["status"] == "human_decision_required" for row in priority)
