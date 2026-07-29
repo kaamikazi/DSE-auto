@@ -445,16 +445,85 @@ def repair_evidence(output: Path) -> None:
     bars, validation = validate_combined_datasets(parent_path, extension_path)
     excluded_dates, exclusions = source_exclusions()
     full = run_portfolio(bars)
+    excluded = {symbol: len(excluded_dates[symbol]) for symbol in FIVE_SYMBOLS}
+    summaries = symbol_summaries(full, bars, excluded)
+    best = deterministic_best(summaries)
+    weights = sector_weights(list(FIVE_SYMBOLS))
+    sector = combine_weighted(full["net_results"], weights, bars)
+    sector_gross = combine_weighted(full["gross_results"], weights, bars)
+    buy_hold = run_portfolio_buy_hold(bars)
+    buy_sector = combine_weighted(buy_hold["net_results"], weights, bars)
+    buy_sector_gross = combine_weighted(buy_hold["gross_results"], weights, bars)
+    no_brac_bars = {
+        symbol: rows for symbol, rows in bars.items() if symbol != "BRACBANK"
+    }
+    no_best_bars = {symbol: rows for symbol, rows in bars.items() if symbol != best}
+    no_brac, no_best = run_portfolio(no_brac_bars), run_portfolio(no_best_bars)
+    payload["baseline"] = {
+        "symbols": summaries,
+        "equal_weight": result_metrics(full),
+        "sector_balanced": {
+            "net": sector["metrics"],
+            "gross": sector_gross["metrics"],
+            "weights": weights,
+        },
+    }
+    payload["benchmarks"] = {
+        "symbols_net": {
+            symbol: dict(result.metrics)
+            for symbol, result in buy_hold["net_results"].items()
+        },
+        "equal_weight": result_metrics(buy_hold),
+        "sector_balanced": {
+            "net": buy_sector["metrics"],
+            "gross": buy_sector_gross["metrics"],
+            "weights": weights,
+        },
+        "cash": {"return_percent": 0.0},
+        "dsex": "unavailable_not_substituted",
+    }
+    payload["leave_bracbank_out"] = {
+        **result_metrics(no_brac),
+        "benchmark": result_metrics(run_portfolio_buy_hold(no_brac_bars)),
+        "change_vs_full_percent_points": float(
+            no_brac["net"]["metrics"]["total_return_percent"]
+        )
+        - float(full["net"]["metrics"]["total_return_percent"]),
+    }
+    payload["leave_best_out"] = {
+        "removed_symbol": best,
+        "predefined_rule": "highest completed baseline net total return; alphabetical tie break",
+        **result_metrics(no_best),
+        "benchmark": result_metrics(run_portfolio_buy_hold(no_best_bars)),
+    }
+    payload["leave_one_out"] = leave_one_out(bars)
+    payload["concentration"] = concentration_summary(
+        float(full["net"]["metrics"]["total_return_percent"]), payload["leave_one_out"]
+    )
+    payload["parameter_stability"] = parameter_universe_stability(bars, best)
+    payload["cost_stress"] = cost_stress(bars, best)
+    payload["data_quality_sensitivity"]["dataset_origin_results"] = {
+        "parent_only": result_metrics(
+            run_portfolio({symbol: bars[symbol] for symbol in PARENT_SYMBOLS})
+        ),
+        "extension_only": result_metrics(
+            run_portfolio({symbol: bars[symbol] for symbol in EXTENSION_SYMBOLS})
+        ),
+        "combined": result_metrics(full),
+    }
     payload["corporate_action_sensitivity"] = corporate_action_analysis(
         bars, excluded_dates, full["net_results"]
     )
     payload["source_exclusions"] = exclusions
     payload["pre_run_validation"]["source_exclusions"] = exclusions
     payload["pre_run_validation"]["mandatory_passed"] = validation["mandatory_passed"]
-    for symbol in PARENT_SYMBOLS:
-        payload["baseline"]["symbols"][symbol]["missing_data_exclusions"] = len(
-            excluded_dates[symbol]
-        )
+    payload["baseline"]["equal_weight"]["net"]["missing_data_exclusions"] = sum(
+        excluded.values()
+    )
+    payload["baseline"]["equal_weight"]["gross"]["missing_data_exclusions"] = sum(
+        excluded.values()
+    )
+    payload["verdict"] = verdict(payload)
     payload_path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8"
     )
@@ -602,16 +671,18 @@ def main() -> int:
     full = run_portfolio(bars)
     summaries = symbol_summaries(full, bars, excluded)
     best = deterministic_best(summaries)
-    sector = combine_weighted(full["net_results"], sector_weights(list(FIVE_SYMBOLS)))
+    sector = combine_weighted(
+        full["net_results"], sector_weights(list(FIVE_SYMBOLS)), bars
+    )
     sector_gross = combine_weighted(
-        full["gross_results"], sector_weights(list(FIVE_SYMBOLS))
+        full["gross_results"], sector_weights(list(FIVE_SYMBOLS)), bars
     )
     buy_hold = run_portfolio_buy_hold(bars)
     buy_sector = combine_weighted(
-        buy_hold["net_results"], sector_weights(list(FIVE_SYMBOLS))
+        buy_hold["net_results"], sector_weights(list(FIVE_SYMBOLS)), bars
     )
     buy_sector_gross = combine_weighted(
-        buy_hold["gross_results"], sector_weights(list(FIVE_SYMBOLS))
+        buy_hold["gross_results"], sector_weights(list(FIVE_SYMBOLS)), bars
     )
     no_brac_bars = {s: rows for s, rows in bars.items() if s != "BRACBANK"}
     no_brac = run_portfolio(no_brac_bars)

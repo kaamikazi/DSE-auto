@@ -5,7 +5,7 @@ from collections import Counter
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
-from statistics import median
+from statistics import mean, median
 from typing import Any, cast
 
 from app.backtesting.engine import BacktestResult
@@ -194,7 +194,9 @@ def validate_combined_datasets(
 
 
 def combine_weighted(
-    results: dict[str, BacktestResult], weights: dict[str, float]
+    results: dict[str, BacktestResult],
+    weights: dict[str, float],
+    bars: dict[str, list[HistoricalBar]] | None = None,
 ) -> dict[str, Any]:
     if set(results) != set(weights) or abs(sum(weights.values()) - 1.0) > 1e-9:
         raise ValueError("Weights must cover results and total one")
@@ -244,6 +246,8 @@ def combine_weighted(
             ),
         }
     )
+    if bars is not None:
+        _add_portfolio_trade_statistics(metrics, results, bars)
     return {"metrics": metrics, "equity_curve": curve, "weights": weights}
 
 
@@ -272,12 +276,52 @@ def run_portfolio(
         )
         for s, rows in bars.items()
     }
+    net_combined = combine_results(net)
+    gross_combined = combine_results(gross)
+    _add_portfolio_trade_statistics(net_combined["metrics"], net, bars)
+    _add_portfolio_trade_statistics(gross_combined["metrics"], gross, bars)
     return {
         "net_results": net,
         "gross_results": gross,
-        "net": combine_results(net),
-        "gross": combine_results(gross),
+        "net": net_combined,
+        "gross": gross_combined,
     }
+
+
+def _add_portfolio_trade_statistics(
+    metrics: dict[str, Any],
+    results: dict[str, BacktestResult],
+    bars: dict[str, list[HistoricalBar]],
+) -> None:
+    pnls: list[float] = []
+    completed = wins = 0
+    weighted_holding_days = 0.0
+    for result in results.values():
+        stats = _closed_trade_stats(result.trades)
+        count = int(stats["completed_trades"])
+        completed += count
+        wins += int(stats["winning_trades"])
+        pnls.extend(cast(list[float], stats["trade_pnls"]))
+        if stats["average_holding_days"] is not None:
+            weighted_holding_days += float(stats["average_holding_days"]) * count
+    gross_profit = sum(value for value in pnls if value > 0)
+    gross_loss = abs(sum(value for value in pnls if value <= 0))
+    metrics.update(
+        {
+            "win_rate": wins / completed if completed else 0.0,
+            "profit_factor": (
+                gross_profit / gross_loss
+                if gross_loss
+                else (None if not gross_profit else "infinite_no_losing_closed_trade")
+            ),
+            "expectancy_bdt": mean(pnls) if pnls else None,
+            "average_holding_period_days": (
+                weighted_holding_days / completed if completed else None
+            ),
+            "skipped_entries": sum(count_liquidity_exclusions(rows) for rows in bars.values()),
+            "missing_data_exclusions": 0,
+        }
+    )
 
 
 def symbol_summaries(
@@ -329,11 +373,15 @@ def run_portfolio_buy_hold(bars: dict[str, list[HistoricalBar]]) -> dict[str, An
         )
         for s, rows in bars.items()
     }
+    net_combined = combine_results(net)
+    gross_combined = combine_results(gross)
+    _add_portfolio_trade_statistics(net_combined["metrics"], net, bars)
+    _add_portfolio_trade_statistics(gross_combined["metrics"], gross, bars)
     return {
         "net_results": net,
         "gross_results": gross,
-        "net": combine_results(net),
-        "gross": combine_results(gross),
+        "net": net_combined,
+        "gross": gross_combined,
     }
 
 
