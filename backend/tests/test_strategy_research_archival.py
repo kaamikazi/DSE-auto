@@ -164,3 +164,5 @@ def test_runner_guards_no_operational_side_effects_and_audit() -> None:
     assert "run_portfolio(" not in text
     assert "BacktestRequest" not in text
     assert '"surface": "report"' in text
+    assert "CREATE TABLE baselines" in text
+    assert "no strategy is executed" in text

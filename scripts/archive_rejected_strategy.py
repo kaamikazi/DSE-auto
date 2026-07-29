@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, func, select, text
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
@@ -178,9 +178,89 @@ def closure_markdown(payload: dict[str, Any]) -> str:
     )
 
 
+def project_report_data(
+    baselines: list[dict[str, Any]],
+    matrix_dimensions: list[dict[str, Any]],
+    generated: str,
+) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+    queries = {
+        "baselines": (
+            "SELECT baseline, return_percent, drawdown_percent FROM baselines "
+            "ORDER BY return_percent DESC"
+        ),
+        "matrix_dimensions": (
+            "SELECT dimension, candidate_count FROM matrix_dimensions "
+            "ORDER BY dimension"
+        ),
+    }
+    engine = create_engine("sqlite://")
+    datasets: dict[str, list[dict[str, Any]]] = {}
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE baselines(baseline TEXT, return_percent REAL, "
+                "drawdown_percent REAL)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO baselines VALUES "
+                "(:baseline,:return_percent,:drawdown_percent)"
+            ),
+            baselines,
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE matrix_dimensions(dimension TEXT, candidate_count INTEGER)"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO matrix_dimensions VALUES (:dimension,:candidate_count)"),
+            matrix_dimensions,
+        )
+        for name, query in queries.items():
+            datasets[name] = [
+                dict(row._mapping) for row in connection.execute(text(query))
+            ]
+    engine.dispose()
+    sources = [
+        {
+            "id": "benchmark",
+            "label": "Immutable archived benchmark contract",
+            "path": "archived_benchmark_manifest.json",
+            "query": {
+                "sql": queries["baselines"],
+                "description": (
+                    "Deterministic projection of the archived benchmark metrics through "
+                    "an in-memory SQLite table; no strategy is executed."
+                ),
+                "engine": "sqlite",
+                "language": "sql",
+                "executed_at": generated,
+            },
+        },
+        {
+            "id": "matrix",
+            "label": "Predeclared bounded experiment matrix",
+            "path": "bounded_experiment_matrix.json",
+            "query": {
+                "sql": queries["matrix_dimensions"],
+                "description": (
+                    "Deterministic projection of predeclared dimension counts through "
+                    "an in-memory SQLite table; no configuration is evaluated."
+                ),
+                "engine": "sqlite",
+                "language": "sql",
+                "executed_at": generated,
+            },
+        },
+    ]
+    return datasets, sources
+
+
 def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
     result = payload["source_research_result"]
-    baselines = [
+    raw_baselines = [
         {
             "baseline": row["baseline"],
             "return_percent": round(float(row["total_return_percent"]), 4),
@@ -188,29 +268,23 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
         }
         for row in result["baseline_comparison"]
     ]
-    matrix_dimensions = [
+    raw_matrix_dimensions = [
         {"dimension": "momentum measurements", "candidate_count": 4},
         {"dimension": "rebalance frequencies", "candidate_count": 2},
         {"dimension": "portfolio selections", "candidate_count": 3},
         {"dimension": "weighting methods", "candidate_count": 3},
     ]
     body = closure_markdown(payload)
+    datasets, chart_sources = project_report_data(
+        raw_baselines, raw_matrix_dimensions, generated
+    )
     sources = [
         {
             "id": "archive",
             "label": "Archived strategy decision",
             "path": "archived_strategy_decision.json",
         },
-        {
-            "id": "benchmark",
-            "label": "Immutable archived benchmark contract",
-            "path": "archived_benchmark_manifest.json",
-        },
-        {
-            "id": "matrix",
-            "label": "Predeclared bounded experiment matrix",
-            "path": "bounded_experiment_matrix.json",
-        },
+        *chart_sources,
     ]
     return {
         "surface": "report",
@@ -283,15 +357,28 @@ def artifact(payload: dict[str, Any], generated: str) -> dict[str, Any]:
             ],
         },
         "snapshot": {
-            "datasets": {
-                "baselines": baselines,
-                "matrix_dimensions": matrix_dimensions,
-            },
+            "datasets": datasets,
             "generatedAt": generated,
             "status": "ready",
             "version": 1,
         },
     }
+
+
+def repair_artifact(output: Path) -> None:
+    path = output / "artifact.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    generated = value["manifest"]["generatedAt"]
+    datasets, chart_sources = project_report_data(
+        value["snapshot"]["datasets"]["baselines"],
+        value["snapshot"]["datasets"]["matrix_dimensions"],
+        generated,
+    )
+    value["manifest"]["sources"] = [
+        source for source in value["manifest"]["sources"] if source["id"] == "archive"
+    ] + chart_sources
+    value["snapshot"]["datasets"] = datasets
+    path.write_text(json.dumps(value, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def finalize_manifest(output: Path, prior: dict[str, Any], html_status: str) -> None:
@@ -325,10 +412,14 @@ def main() -> int:
     parser.add_argument("--operator", default="operator")
     parser.add_argument("--expected-head")
     parser.add_argument("--finalize-output", type=Path)
+    parser.add_argument("--repair-artifact-output", type=Path)
     parser.add_argument(
         "--html-status", default="builder_structural_only_browser_qa_unavailable"
     )
     args = parser.parse_args()
+    if args.repair_artifact_output:
+        repair_artifact(args.repair_artifact_output)
+        return 0
     if args.finalize_output:
         prior = json.loads(
             (args.finalize_output / "manifest.json").read_text(encoding="utf-8")
