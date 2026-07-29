@@ -9,6 +9,7 @@ from app.services.five_symbol_robustness import (
     FIVE_SYMBOLS,
     assert_registry_identity,
     run_portfolio,
+    run_portfolio_buy_hold,
 )
 from app.services.risk_control_attribution import (
     BASELINE_IDS,
@@ -17,6 +18,7 @@ from app.services.risk_control_attribution import (
     closed_trade_records,
     drawdown_attribution,
     exposure_matched_benchmark,
+    regime_analysis,
     research_decision,
     return_attribution,
     simple_baselines,
@@ -115,6 +117,23 @@ def test_regime_labels_do_not_change_when_future_prices_change() -> None:
     assert {day: value for day, value in original.items() if day <= cutoff} == {
         day: value for day, value in changed.items() if day <= cutoff
     }
+
+
+def test_regime_analysis_reports_conditional_drawdown() -> None:
+    bars = _universe()
+    strategy = run_portfolio(bars)
+    result = regime_analysis(bars, strategy, run_portfolio_buy_hold(bars))
+    assert set(result["results"]) == {
+        "strong_uptrend",
+        "weak_uptrend",
+        "sideways",
+        "downtrend",
+        "high_volatility",
+        "low_volatility",
+    }
+    assert all(
+        value["conditional_maximum_drawdown_percent"] <= 0 for value in result["results"].values()
+    )
 
 
 def test_trade_failure_labels_are_deterministic_and_exhaustive() -> None:

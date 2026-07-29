@@ -489,6 +489,15 @@ def _curve_returns(curve: list[dict[str, object]]) -> dict[str, float]:
     }
 
 
+def _maximum_drawdown_percent(values: list[float]) -> float:
+    peak = values[0]
+    maximum_drawdown = 0.0
+    for value in values:
+        peak = max(peak, value)
+        maximum_drawdown = min(maximum_drawdown, (value / peak - 1) * 100)
+    return maximum_drawdown
+
+
 def _position_days(results: dict[str, BacktestResult], dates: list[str]) -> dict[str, set[str]]:
     output: dict[str, set[str]] = {day: set() for day in dates}
     for symbol, result in results.items():
@@ -532,9 +541,6 @@ def regime_analysis(
         cumulative = [float(STARTING_CAPITAL)]
         for value in strategy_values:
             cumulative.append(cumulative[-1] * (1 + value))
-        curve = [
-            {"timestamp": str(index), "equity": value} for index, value in enumerate(cumulative)
-        ]
         exits = [trade for _, trade in trade_exits if trade.timestamp[:10] in selected]
         output[label] = {
             "observations": len(selected),
@@ -546,11 +552,7 @@ def regime_analysis(
             else 0.0,
             "conditional_return_percent": (math.prod(1 + value for value in strategy_values) - 1)
             * 100,
-            "conditional_maximum_drawdown_percent": _curve_metrics(curve, float(STARTING_CAPITAL))[
-                "maximum_drawdown_percent"
-            ]
-            if len(curve) > 1
-            else 0.0,
+            "conditional_maximum_drawdown_percent": _maximum_drawdown_percent(cumulative),
             "benchmark_conditional_return_percent": (
                 math.prod(1 + value for value in benchmark_values) - 1
             )
