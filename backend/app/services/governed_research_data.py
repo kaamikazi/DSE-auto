@@ -12,7 +12,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 from sqlalchemy import delete, func, select
@@ -564,7 +564,7 @@ def compare_sources(
 
 
 def _bar_valid(bar: NormalizedDailyBar) -> bool:
-    return cast(bool, bar.low <= min(bar.open, bar.close) and bar.high >= max(bar.open, bar.close))
+    return bar.low <= min(bar.open, bar.close) and bar.high >= max(bar.open, bar.close)
 
 
 def _relative_difference(left: Any, right: Any) -> Decimal | None:
