@@ -1,5 +1,10 @@
 # Minimal V1 research facade
 
+> **Canonical operator interface.** Use this CLI for current research status, discovery,
+> historical-run review, and archived-result reproduction. Legacy operator CLIs, wrappers, and
+> milestone runners are deprecated for direct use; their retention status is recorded in
+> [LEGACY_SURFACE_INVENTORY.md](LEGACY_SURFACE_INVENTORY.md).
+
 ## Purpose and boundary
 
 Minimal V1 is a read-compatible application facade over the existing DSE AutoTrader records,
@@ -31,7 +36,7 @@ No Minimal V1 read model inherits SQLAlchemy `Base`, owns a `__tablename__`, or 
 
 `MinimalV1Facade` supports safety status, active research datasets, registered strategies,
 historical run lookup, and reproduction through the existing five-symbol engine. The only new
-operator surface is:
+and canonical operator surface is:
 
 ```powershell
 cd backend
@@ -102,5 +107,5 @@ Measurements use physical Python lines, including comments and blanks.
 | Audit-event types | unchanged | unchanged | 0 | Pass |
 | Report formats | JSON/CSV/Markdown/HTML | unchanged | 0 | Pass; Minimal V1 emits only three existing formats |
 
-The next simplification step may archive duplicate surfaces only after reference scans,
-reproduction from a clean clone, and a separately authorized evidence-preserving plan.
+The next simplification step may archive only items classified `archive_candidate` in the
+legacy-surface inventory, and only after a separately authorized evidence-preserving plan.

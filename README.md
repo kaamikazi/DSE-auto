@@ -20,6 +20,10 @@ Milestone 11 is complete. The repository includes review-only evidence intake, d
 
 No evidence upload or review can activate rules, fees, risk limits, datasets, strategies, campaigns, or trading. No real-market day has qualified toward the required 60-day evidence target.
 
+Minimal V1 is the canonical operator path for research status, dataset and strategy discovery,
+historical-run review, and deterministic reproduction. Legacy operator and milestone runners
+remain only for retained dependencies or historical evidence compatibility.
+
 ## Architecture
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic
@@ -86,6 +90,25 @@ py -3.12 -m venv .venv
 ```
 
 API documentation is available at `http://127.0.0.1:8000/api/docs`.
+
+## Canonical research operator path
+
+Run operator research work through Minimal V1 from the backend directory:
+
+```powershell
+Set-Location backend
+python -m app.minimal_v1_cli status
+python -m app.minimal_v1_cli datasets
+python -m app.minimal_v1_cli strategies
+python -m app.minimal_v1_cli runs
+python -m app.minimal_v1_cli reproduce
+```
+
+The reproduction command replays only the immutable archived five-symbol compatibility target.
+It does not promote a strategy or create a campaign, session, signal, order, transaction, or fill.
+See [Minimal V1](docs/MINIMAL_V1.md) and the
+[Legacy Surface Inventory](docs/LEGACY_SURFACE_INVENTORY.md). Do not use legacy CLIs or
+milestone runners for new operator work.
 
 ## Frontend setup
 
