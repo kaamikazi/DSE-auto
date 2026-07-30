@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+import pytest
 from sqlalchemy import func, select
 
 from app.models import (
@@ -182,7 +183,7 @@ def test_lifecycle_and_adjustment_signals_remain_conservative() -> None:
     )
 
 
-def _create_pilot_database(path: Path) -> None:
+def _create_pilot_database(path: Path, symbols: tuple[str, ...] = PILOT_SYMBOLS) -> None:
     db = sqlite3.connect(path)
     db.executescript(
         """
@@ -203,7 +204,7 @@ def _create_pilot_database(path: Path) -> None:
     )
     fields = list(_observation())
     rows: list[dict[str, object]] = []
-    for index, symbol in enumerate(PILOT_SYMBOLS, start=1):
+    for index, symbol in enumerate(symbols, start=1):
         base = _observation(
             id=index * 10,
             normalized_symbol=symbol,
@@ -276,6 +277,49 @@ def test_candidate_rebuild_and_review_queue_are_inactive_and_manageable(tmp_path
         row["lifecycle_status"] == "lifecycle_evidence_pending"
         for row in result["lifecycle_evidence"]
     )
+
+
+def test_explicit_five_symbol_scope_preserves_common_dispositions(tmp_path: Path) -> None:
+    database = tmp_path / "pilot.sqlite3"
+    conflict = tmp_path / "conflicts.json"
+    quality = tmp_path / "quality.json"
+    expanded = (*PILOT_SYMBOLS, "RENATA", "BERGERPBL")
+    _create_pilot_database(database, expanded)
+    conflict.write_text("[]", encoding="utf-8")
+    quality.write_text(json.dumps([{"logical_name": "source-a", "score": 80}]), encoding="utf-8")
+
+    prior = build_pilot_methodology_audit(database, conflict, quality)
+    scope = ("IDLC", "LANKABAFIN", "POWERGRID", "RENATA", "BERGERPBL")
+    review = build_pilot_methodology_audit(database, conflict, quality, symbols=scope)
+
+    assert review["scope"] == list(scope)
+    assert [row["symbol"] for row in review["symbol_summary"]] == list(scope)
+    assert review["totals"]["reconciliation_equation"]["balanced"] is True
+    assert len(review["lifecycle_approval_records"]) == 5
+    common = {"IDLC", "LANKABAFIN", "POWERGRID"}
+    prior_rows = {
+        row["logical_row_id"]: row["final_disposition"]
+        for row in prior["candidates"]
+        if row["symbol"] in common
+    }
+    scoped_rows = {
+        row["logical_row_id"]: row["final_disposition"]
+        for row in review["candidates"]
+        if row["symbol"] in common
+    }
+    assert scoped_rows == prior_rows
+
+
+def test_explicit_scope_requires_unique_symbols(tmp_path: Path) -> None:
+    database = tmp_path / "pilot.sqlite3"
+    conflict = tmp_path / "conflicts.json"
+    quality = tmp_path / "quality.json"
+    _create_pilot_database(database)
+    conflict.write_text("[]", encoding="utf-8")
+    quality.write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unique symbols"):
+        build_pilot_methodology_audit(database, conflict, quality, symbols=("IDLC", "IDLC"))
 
 
 def test_service_has_no_activation_or_strategy_execution_path() -> None:

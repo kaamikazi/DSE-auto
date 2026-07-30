@@ -401,24 +401,24 @@ def classify_corporate_action_candidate(
     return "ordinary_price_movement", "insufficient_evidence"
 
 
-def _load_observations(db: sqlite3.Connection) -> list[dict[str, Any]]:
+def _load_observations(db: sqlite3.Connection, symbols: Sequence[str]) -> list[dict[str, Any]]:
     db.row_factory = sqlite3.Row
-    placeholders = ",".join("?" for _ in PILOT_SYMBOLS)
+    placeholders = ",".join("?" for _ in symbols)
     rows = db.execute(
         f"SELECT * FROM observations WHERE normalized_symbol IN ({placeholders}) "
         "ORDER BY normalized_symbol,trading_date,source_dataset_id,adjustment_status,id",  # noqa: S608
-        PILOT_SYMBOLS,
+        symbols,
     )
     return [dict(row) for row in rows]
 
 
-def _load_actions(db: sqlite3.Connection) -> list[dict[str, Any]]:
+def _load_actions(db: sqlite3.Connection, symbols: Sequence[str]) -> list[dict[str, Any]]:
     db.row_factory = sqlite3.Row
-    placeholders = ",".join("?" for _ in PILOT_SYMBOLS)
+    placeholders = ",".join("?" for _ in symbols)
     rows = db.execute(
         f"SELECT * FROM corporate_action_candidates WHERE normalized_symbol IN ({placeholders}) "
         "ORDER BY normalized_symbol,trading_date,source_dataset_id",  # noqa: S608
-        PILOT_SYMBOLS,
+        symbols,
     )
     return [dict(row) for row in rows]
 
@@ -473,9 +473,9 @@ def _factor_changes(observations: Iterable[dict[str, Any]]) -> set[tuple[str, st
     return changed
 
 
-def _lifecycle(observations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _lifecycle(observations: list[dict[str, Any]], symbols: Sequence[str]) -> list[dict[str, Any]]:
     output = []
-    for symbol in PILOT_SYMBOLS:
+    for symbol in symbols:
         valid = [
             row
             for row in observations
@@ -538,20 +538,25 @@ def _approval_id(kind: str, value: object) -> str:
     return f"{kind}_{_canonical_hash(value)[:24]}"
 
 
-def _baseline_conflicts(conflict_path: Path) -> list[dict[str, Any]]:
+def _baseline_conflicts(conflict_path: Path, symbols: Sequence[str]) -> list[dict[str, Any]]:
     rows = json.loads(conflict_path.read_text(encoding="utf-8"))
-    return [classify_existing_conflict(row) for row in rows if row["symbol"] in PILOT_SYMBOLS]
+    return [classify_existing_conflict(row) for row in rows if row["symbol"] in symbols]
 
 
 def build_pilot_methodology_audit(
     database_path: Path,
     conflict_path: Path,
     source_quality_path: Path,
+    *,
+    symbols: Sequence[str] = PILOT_SYMBOLS,
 ) -> dict[str, Any]:
+    scoped_symbols = tuple(symbols)
+    if not scoped_symbols or len(set(scoped_symbols)) != len(scoped_symbols):
+        raise ValueError("Methodology scope must contain unique symbols")
     with sqlite3.connect(f"file:{database_path}?mode=ro", uri=True) as db:
-        observations = _load_observations(db)
-        actions = _load_actions(db)
-    baseline = _baseline_conflicts(conflict_path)
+        observations = _load_observations(db, scoped_symbols)
+        actions = _load_actions(db, scoped_symbols)
+    baseline = _baseline_conflicts(conflict_path, scoped_symbols)
     source_quality = _source_quality(source_quality_path)
     source_scores = _source_scores(source_quality_path)
     source_counts = _source_counts(observations)
@@ -711,12 +716,14 @@ def build_pilot_methodology_audit(
             "probable_bonus_share_adjustment",
             "probable_dividend_adjustment",
         }
+        classification = "ordinary_movement" if cause == "ordinary_price_movement" else status
         action_audit.append(
             {
                 **row,
                 "gap_days": gap_days,
                 "audit_cause": cause,
                 "conservative_status": status,
+                "classification": classification,
                 "registered_evidence": False,
                 "multiple_supporting_signals": likely_action,
                 "approved": False,
@@ -846,7 +853,7 @@ def build_pilot_methodology_audit(
         )
     candidates.sort(key=lambda row: (row["symbol"], row["date"], row["logical_row_id"]))
 
-    lifecycle = _lifecycle(observations)
+    lifecycle = _lifecycle(observations, scoped_symbols)
     conflict_approval_records: list[dict[str, Any]] = []
     for comparison in corrected:
         if comparison["status"] != "genuine_conflict":
@@ -937,7 +944,7 @@ def build_pilot_methodology_audit(
     review_queue = [*conflict_approval_records, *lifecycle_approval_records]
 
     symbol_summary: list[dict[str, Any]] = []
-    for symbol in PILOT_SYMBOLS:
+    for symbol in scoped_symbols:
         symbol_candidates = [row for row in candidates if row["symbol"] == symbol]
         statuses = Counter(str(row["status"]) for row in symbol_candidates)
         tier_3_reason_counts = Counter(
@@ -1089,7 +1096,7 @@ def build_pilot_methodology_audit(
         ),
     }
     return {
-        "scope": list(PILOT_SYMBOLS),
+        "scope": list(scoped_symbols),
         "qualification": "0/60",
         "activation": False,
         "strategy_execution": False,
@@ -1119,7 +1126,10 @@ def build_pilot_methodology_audit(
         "symbol_summary": symbol_summary,
         "symbol_readiness": sorted(
             symbol_readiness,
-            key=lambda row: (not row["priority"], PILOT_SYMBOLS.index(row["symbol"])),
+            key=lambda row: (
+                not row["priority"] if scoped_symbols == PILOT_SYMBOLS else False,
+                scoped_symbols.index(row["symbol"]),
+            ),
         ),
         "source_hierarchy": source_hierarchy,
         "proposed_activation_policy": {
