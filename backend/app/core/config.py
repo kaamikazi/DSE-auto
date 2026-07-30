@@ -130,6 +130,21 @@ class Settings(BaseSettings):
         return configured
 
 
+def assert_paper_only_safety(settings: Settings) -> None:
+    """Enforce the permanent execution boundary at consequential read-facade actions."""
+    actual = (
+        settings.TRADING_MODE,
+        settings.LIVE_TRADING_ENABLED,
+        settings.BROKER_ADAPTER,
+    )
+    expected = ("paper", False, "disabled")
+    if actual != expected:
+        raise RuntimeError(
+            "Paper-only safety mismatch: require TRADING_MODE=paper, "
+            "LIVE_TRADING_ENABLED=false, and BROKER_ADAPTER=disabled"
+        )
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
