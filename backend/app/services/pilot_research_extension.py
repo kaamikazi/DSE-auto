@@ -135,7 +135,26 @@ def build_extension_rows(
     expected_active_counts: Mapping[str, int] = EXPECTED_ACTIVE_COUNTS,
     expected_exclusions: Mapping[str, Mapping[str, int]] = EXPECTED_EXCLUSIONS,
     expected_reconciled_rows: int = 58662,
+    target_symbols: Sequence[str] = TARGET_SYMBOLS,
+    blocked_symbols: Sequence[str] = BLOCKED_SYMBOLS,
+    observed_windows: Mapping[str, Mapping[str, str]] | None = None,
+    transformation_version: str = TRANSFORMATION_VERSION,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    targets = tuple(target_symbols)
+    if not targets or len(targets) != len(set(targets)):
+        raise ValueError("Target symbols must be non-empty and unique")
+    if set(expected_active_counts) != set(targets):
+        raise ValueError("Expected active counts must cover exactly the target symbols")
+    if set(expected_exclusions) != set(targets):
+        raise ValueError("Expected exclusions must cover exactly the target symbols")
+    if observed_windows is not None and set(observed_windows) != set(targets):
+        raise ValueError("Observed windows must cover exactly the target symbols")
+    windows = {
+        symbol: dict((observed_windows or {}).get(symbol, OBSERVED_WINDOW)) for symbol in targets
+    }
+    for symbol, window in windows.items():
+        if set(window) != {"start", "end"} or window["start"] > window["end"]:
+            raise ValueError(f"Invalid observed window for {symbol}")
     if len(dispositions) != expected_reconciled_rows:
         raise ValueError(
             f"Expected {expected_reconciled_rows:,} reconciled rows, found {len(dispositions):,}"
@@ -148,11 +167,11 @@ def build_extension_rows(
     if any(bool(row.get("active")) for row in dispositions):
         raise ValueError("Reconciliation pack unexpectedly contains active rows")
 
-    target_rows = [row for row in dispositions if str(row["symbol"]) in TARGET_SYMBOLS]
+    target_rows = [row for row in dispositions if str(row["symbol"]) in targets]
     blocked_active = [
         row
         for row in dispositions
-        if str(row["symbol"]) in BLOCKED_SYMBOLS
+        if str(row["symbol"]) in blocked_symbols
         and row["final_disposition"] == ALLOWED_DISPOSITION
         and bool(row.get("active"))
     ]
@@ -166,15 +185,13 @@ def build_extension_rows(
                 if row["symbol"] == symbol and row["final_disposition"] != ALLOWED_DISPOSITION
             )
         )
-        for symbol in TARGET_SYMBOLS
+        for symbol in targets
     }
     for symbol, expected in expected_exclusions.items():
-        for disposition, count in expected.items():
-            if actual_exclusions[symbol].get(disposition, 0) != count:
-                raise ValueError(
-                    f"{symbol} exclusion drift for {disposition}: "
-                    f"{actual_exclusions[symbol].get(disposition, 0)} != {count}"
-                )
+        if actual_exclusions[symbol] != dict(expected):
+            raise ValueError(
+                f"{symbol} exclusion drift: {actual_exclusions[symbol]} != {dict(expected)}"
+            )
 
     selected = [row for row in target_rows if row["final_disposition"] == ALLOWED_DISPOSITION]
     active: list[dict[str, Any]] = []
@@ -187,7 +204,8 @@ def build_extension_rows(
         if key in seen_keys:
             raise ValueError(f"Duplicate active symbol/date/grain key: {key}")
         seen_keys.add(key)
-        if not OBSERVED_WINDOW["start"] <= trading_date <= OBSERVED_WINDOW["end"]:
+        window = windows[symbol]
+        if not window["start"] <= trading_date <= window["end"]:
             raise ValueError(f"Row falls outside approved observed window: {key}")
         if adjustment not in {"adjusted", "unadjusted"}:
             raise ValueError(f"Unknown adjustment grain reached activation: {key}")
@@ -254,13 +272,13 @@ def build_extension_rows(
                 "corporate_actions_reconstructed": False,
                 "missing_dates_inferred": False,
                 "observed_research_window": {
-                    **OBSERVED_WINDOW,
+                    **window,
                     "official_listing_date_claim": False,
                     "lifecycle_evidence": "pending",
                 },
                 "timestamp_trust": "unknown",
                 "source_trust": "third_party_research",
-                "transformation_version": TRANSFORMATION_VERSION,
+                "transformation_version": transformation_version,
                 "activation_timestamp": activation_timestamp,
                 "human_decision_ids": sorted(human_decision_ids.values()),
                 "audit_event_ids": sorted(audit_event_ids.values()),
@@ -281,7 +299,7 @@ def build_extension_rows(
         "active_by_symbol": dict(active_counts),
         "active_by_tier": {ALLOWED_DISPOSITION: len(active)},
         "excluded_by_symbol_and_disposition": actual_exclusions,
-        "observed_windows": {symbol: dict(OBSERVED_WINDOW) for symbol in TARGET_SYMBOLS},
+        "observed_windows": windows,
         "validation_failures": [],
     }
 
@@ -411,10 +429,14 @@ def record_decision(
     spec: dict[str, Any],
     draft_version: str,
     operator_identity: str,
+    approval_type: str = "pilot_research_extension",
+    evidence_ids: Sequence[str] = (PACK_MANIFEST_HASH,),
 ) -> GovernanceItemApproval:
+    if not evidence_ids or any(not item for item in evidence_ids):
+        raise ValueError("Decision evidence IDs must be non-empty")
     if db.scalar(
         select(GovernanceItemApproval).where(
-            GovernanceItemApproval.approval_type == "pilot_research_extension",
+            GovernanceItemApproval.approval_type == approval_type,
             GovernanceItemApproval.draft_version == draft_version,
             GovernanceItemApproval.item_key == spec["key"],
         )
@@ -430,12 +452,12 @@ def record_decision(
         }
     )
     approval = GovernanceItemApproval(
-        approval_type="pilot_research_extension",
+        approval_type=approval_type,
         draft_version=draft_version,
         item_key=spec["key"],
         current_draft={"active": False},
         proposed_value=proposed,
-        evidence_ids=[PACK_MANIFEST_HASH],
+        evidence_ids=list(evidence_ids),
         conflicts=[],
         missing_evidence=[],
         verification_status="operator_decided",
@@ -483,48 +505,59 @@ def create_extension_dataset_record(
     git_head: str,
     audit_chain_id: str,
     operator_identity: str,
+    symbols: Sequence[str] = TARGET_SYMBOLS,
+    review_evidence_hash: str = PACK_MANIFEST_HASH,
+    transformation_version: str = TRANSFORMATION_VERSION,
+    parent_review_commit: str | None = None,
 ) -> ResearchDataset:
     if not verify_audit_chain(db):
         raise ValueError("Canonical audit chain is invalid")
     if db.scalar(select(ResearchDataset).where(ResearchDataset.name == version)):
         raise ValueError("Research extension version already exists")
+    quality_report = {
+        **summary,
+        "dataset_id": version,
+        "parent_dataset_id": parent_dataset.id,
+        "parent_dataset_version": parent_dataset.name,
+        "parent_dataset_hash": parent_dataset.dataset_hash,
+        "classification": ACTIVE_STATUS,
+        "research_only": True,
+        "qualification": "0/60",
+        "source_policy": (
+            "Mendeley known-grain coverage-metadata source primary; DSEStocks and "
+            "AmarStock retained as validation references; independence not claimed"
+        ),
+        "transformation_version": transformation_version,
+        "git_head": git_head,
+        "database_fingerprint": candidate_db_hash,
+        "review_artifact_hash": review_evidence_hash,
+        "parent_review_commit": parent_review_commit,
+        "human_decision_ids": sorted(item.id for item in decisions.values()),
+        "audit_chain_id": audit_chain_id,
+        "exchange_verified": False,
+        "official_lifecycle_verified": False,
+        "paper_candidate": False,
+        "strategy_approved": False,
+        "production_ready": False,
+        "real_money_ready": False,
+        "campaign_approved": False,
+    }
+    if review_evidence_hash == PACK_MANIFEST_HASH:
+        quality_report["pack_manifest_hash"] = review_evidence_hash
     dataset = ResearchDataset(
         name=version,
-        symbols=list(TARGET_SYMBOLS),
+        symbols=list(symbols),
         data_types=["daily_ohlcv", "adjusted_and_unadjusted", "immutable_lineage"],
-        source_evidence_ids=[PACK_MANIFEST_HASH, *sorted(item.id for item in decisions.values())],
+        source_evidence_ids=[
+            review_evidence_hash,
+            *sorted(item.id for item in decisions.values()),
+        ],
         source_hash=source_bundle_hash,
         dataset_hash=dataset_hash,
         timestamp_trust="unknown",
         raw_file_path=str(candidate_db_path),
         normalized_file_path=str(dataset_path),
-        quality_report={
-            **summary,
-            "dataset_id": version,
-            "parent_dataset_id": parent_dataset.id,
-            "parent_dataset_version": parent_dataset.name,
-            "parent_dataset_hash": parent_dataset.dataset_hash,
-            "classification": ACTIVE_STATUS,
-            "research_only": True,
-            "qualification": "0/60",
-            "source_policy": (
-                "Mendeley known-grain coverage-metadata source primary; DSEStocks and "
-                "AmarStock retained as validation references; independence not claimed"
-            ),
-            "transformation_version": TRANSFORMATION_VERSION,
-            "git_head": git_head,
-            "database_fingerprint": candidate_db_hash,
-            "pack_manifest_hash": PACK_MANIFEST_HASH,
-            "human_decision_ids": sorted(item.id for item in decisions.values()),
-            "audit_chain_id": audit_chain_id,
-            "exchange_verified": False,
-            "official_lifecycle_verified": False,
-            "paper_candidate": False,
-            "strategy_approved": False,
-            "production_ready": False,
-            "real_money_ready": False,
-            "campaign_approved": False,
-        },
+        quality_report=quality_report,
         status="research_dataset_active",
         approved_by=operator_identity,
         approved_at=datetime.now(UTC),

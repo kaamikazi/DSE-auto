@@ -188,6 +188,58 @@ def test_lineage_completeness_and_ohlc_invariants_fail_closed() -> None:
         )
 
 
+def test_existing_builder_supports_a_strict_custom_symbol_scope() -> None:
+    symbols = ("IDLC", "LANKABAFIN", "POWERGRID", "RENATA", "BERGERPBL")
+    rows: list[dict[str, object]] = []
+    observations: dict[str, dict[str, object]] = {}
+    exclusions: dict[str, dict[str, int]] = {}
+    for symbol in symbols:
+        active = _disposition(symbol, "2024-01-01", ALLOWED_DISPOSITION)
+        held = _disposition(symbol, "2024-01-02", "held_genuine_conflict")
+        rows.extend((active, held))
+        observations[str(active["source_row_ids"][0])] = _observation(active)  # type: ignore[index]
+        exclusions[symbol] = {"held_genuine_conflict": 1}
+
+    active, summary = build_extension_rows(
+        rows,  # type: ignore[arg-type]
+        observations,  # type: ignore[arg-type]
+        activation_timestamp="2026-08-05T00:00:00+00:00",
+        human_decision_ids={"scope": "decision"},
+        audit_event_ids={"scope": "audit"},
+        expected_active_counts={symbol: 1 for symbol in symbols},
+        expected_exclusions=exclusions,
+        expected_reconciled_rows=len(rows),
+        target_symbols=symbols,
+        blocked_symbols=(),
+        observed_windows={symbol: dict(OBSERVED_WINDOW) for symbol in symbols},
+        transformation_version="five-symbol-t2-test-v1",
+    )
+
+    assert [row["symbol"] for row in active] == sorted(symbols)
+    assert all(row["transformation_version"] == "five-symbol-t2-test-v1" for row in active)
+    assert summary["active_rows"] == 5
+    assert all(
+        values == {"held_genuine_conflict": 1}
+        for values in summary["excluded_by_symbol_and_disposition"].values()
+    )
+
+
+def test_custom_scope_rejects_incomplete_windows() -> None:
+    rows, observations, exclusions = _fixture()
+    with pytest.raises(ValueError, match="Observed windows must cover exactly"):
+        build_extension_rows(
+            rows,  # type: ignore[arg-type]
+            observations,  # type: ignore[arg-type]
+            activation_timestamp="test",
+            human_decision_ids={},
+            audit_event_ids={},
+            expected_active_counts={"BATBC": 1, "SQURPHARMA": 1},
+            expected_exclusions=exclusions,
+            expected_reconciled_rows=len(rows),
+            observed_windows={"BATBC": dict(OBSERVED_WINDOW)},
+        )
+
+
 def test_dataset_jsonl_hash_integrity(tmp_path: Path) -> None:
     rows, _ = _build()
     path = tmp_path / "extension.jsonl"
@@ -231,6 +283,28 @@ def test_decision_records_have_independent_audit_events(db: Session, tmp_path: P
         event_ids.append(approval.audit_event_id)
     assert len(event_ids) == len(set(event_ids)) == 11
     assert db.scalar(select(func.count()).select_from(GovernanceItemApproval)) == 11
+    assert verify_audit_chain(db)
+
+
+def test_decision_can_bind_to_a_specific_review_artifact(db: Session, tmp_path: Path) -> None:
+    initialize_canonical_chain(db, tmp_path / "audit", "Scoped extension decision test")
+    review_hash = "f" * 64
+    approval = record_decision(
+        db,
+        spec={
+            "key": "IDLC.conflict.2021-04-26",
+            "status": "held_genuine_conflict",
+            "event": "research_subset.conflicts_held",
+            "value": {"symbol": "IDLC", "date": "2021-04-26", "active": False},
+        },
+        draft_version="five-symbol-t2-test-v1",
+        operator_identity="test-operator",
+        approval_type="five_symbol_t2_extension",
+        evidence_ids=(review_hash,),
+    )
+
+    assert approval.approval_type == "five_symbol_t2_extension"
+    assert approval.evidence_ids == [review_hash]
     assert verify_audit_chain(db)
 
 
