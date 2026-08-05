@@ -34,6 +34,8 @@ from app.services.strategy_research_archival import assert_archived_state, canon
 
 ARCHIVED_STRATEGY_ID = "ma_crossover"
 ARCHIVED_STRATEGY_VERSION = "1.0.0"
+MOMENTUM_STRATEGY_ID = "cross_sectional_momentum"
+MOMENTUM_STRATEGY_VERSION = "0.1.0"
 EXPECTED_RESEARCH_DECISION = "reject_strategy"
 EXPECTED_RESEARCH_ROLE = "archived_rejected_benchmark"
 DEFAULT_METRIC_TOLERANCE = 1e-8
@@ -236,6 +238,9 @@ class MinimalV1Facade:
         return metrics
 
     def historical_run(self, run_id: str | None = None) -> ResearchRunSummary:
+        momentum = self._momentum_run()
+        if run_id is not None and momentum is not None and run_id == momentum.run_id:
+            return momentum
         registration, contract, source_path, source, prior_path, prior = self._archived_context()
         canonical_run_id = source_path.parent.name
         if run_id is not None and run_id != canonical_run_id:
@@ -283,7 +288,47 @@ class MinimalV1Facade:
         )
 
     def historical_runs(self) -> list[ResearchRunSummary]:
-        return [self.historical_run()]
+        runs = [self.historical_run()]
+        momentum = self._momentum_run()
+        if momentum is not None:
+            runs.append(momentum)
+        return runs
+
+    def _momentum_run(self) -> ResearchRunSummary | None:
+        registration = self.db.scalar(
+            select(StrategyRegistration).where(
+                StrategyRegistration.strategy_id == MOMENTUM_STRATEGY_ID,
+                StrategyRegistration.version == MOMENTUM_STRATEGY_VERSION,
+            )
+        )
+        if registration is None:
+            return None
+        evidence = dict(registration.evidence or {})
+        raw_summary = evidence.get("minimal_v1_run_summary")
+        if not isinstance(raw_summary, dict):
+            raise RuntimeError("Momentum registration lacks a Minimal V1 run summary")
+        summary = ResearchRunSummary.model_validate(raw_summary)
+        result_path = self.repository_root / Path(summary.artifact_locations[0])
+        if not result_path.is_file() or sha256_file(result_path) != evidence.get(
+            "result_file_sha256"
+        ):
+            raise RuntimeError("Momentum canonical result identity mismatch")
+        identities = cast(
+            list[dict[str, Any]],
+            summary.dataset_identities.get("active_research_datasets", []),
+        )
+        for identity in identities:
+            dataset = self.db.get(ResearchDataset, str(identity["id"]))
+            if (
+                dataset is None
+                or dataset.status != "research_dataset_active"
+                or dataset.dataset_hash != identity["sha256"]
+            ):
+                raise RuntimeError("Momentum active dataset identity changed")
+            path = _dataset_file(dataset, self.repository_root)
+            if not path.is_file() or sha256_file(path) != dataset.dataset_hash:
+                raise RuntimeError("Momentum active dataset file identity changed")
+        return summary
 
     def _active_contract_datasets(
         self, contract: dict[str, Any]
