@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import sys
+
+if __package__ in {None, ""}:
+    sys.path.pop(0)
+
 import csv
 import json
 import shutil
 import sqlite3
 import subprocess
-import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -290,7 +294,10 @@ def main() -> None:
             event_ids: list[str] = []
             for event_type, state in (
                 ("strategy.artifact_hashes_verified", {**shared, **preliminary_hashes}),
-                ("strategy.research_registration_created", {**shared, "lifecycle": "research"}),
+                (
+                    "strategy.research_registration_created",
+                    {**shared, "lifecycle": "research"},
+                ),
                 (
                     "strategy.research_execution_authorized",
                     {**shared, "scope": "this_historical_research_run_only"},
@@ -306,7 +313,11 @@ def main() -> None:
                 ),
                 (
                     "strategy.promotion_prohibited",
-                    {**shared, "promotion_permission": False, "campaign_eligibility": False},
+                    {
+                        **shared,
+                        "promotion_permission": False,
+                        "campaign_eligibility": False,
+                    },
                 ),
             ):
                 event = append_audit(
@@ -353,7 +364,11 @@ def main() -> None:
             registration.evidence = {
                 **registration.evidence,
                 "research_verdict": bundle.payload["research_verdict"],
-                "artifact_hashes": {**preliminary_hashes, "research_result.json": result_sha},
+                "research_execution_authorized": False,
+                "artifact_hashes": {
+                    **preliminary_hashes,
+                    "research_result.json": result_sha,
+                },
                 "result_file_sha256": result_sha,
                 "minimal_v1_run_summary": summary,
                 "audit_event_ids": event_ids,
@@ -368,6 +383,8 @@ def main() -> None:
                     **shared,
                     "artifact_hashes": registration.evidence["artifact_hashes"],
                     "artifact_count": 3,
+                    "research_execution_authorized": False,
+                    "single_run_authorization_consumed": True,
                 },
             )
             registration.evidence = {
