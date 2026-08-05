@@ -64,3 +64,4 @@ data/imports/*
 
 # Keep only the non-sensitive cache directory placeholder.
 !data/cache/.gitkeep
+.research_refs/
