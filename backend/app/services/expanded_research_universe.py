@@ -2,15 +2,43 @@ from __future__ import annotations
 
 import calendar
 import sqlite3
+from collections import Counter, defaultdict
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from app.services.pilot_conflict_methodology import build_pilot_methodology_audit
+
 TARGET_UNIVERSE_SIZE = 25
 MAX_PER_SECTOR = 3
 MIN_VALID_ROWS = 1500
 CONTINUITY_ANCHORS = ("GP", "ACI", "BRACBANK")
+ACTIVE_RESEARCH_UNIVERSE = (
+    "GP",
+    "ACI",
+    "BRACBANK",
+    "BATBC",
+    "SQURPHARMA",
+    "IDLC",
+    "LANKABAFIN",
+    "POWERGRID",
+    "RENATA",
+    "BERGERPBL",
+)
+FROZEN_STRATEGY_IDENTITIES = (
+    "ma_crossover@1.0.0",
+    "cross_sectional_momentum@0.1.0",
+    "defensive_low_volatility@0.1.0",
+    "absolute_momentum_filter@0.1.0",
+)
+EXPANSION_CANDIDATE_COUNT = 15
+MIN_EXPANSION_TIER_2_ROWS = 5000
+MIN_EXPANSION_ADJUSTED_TIER_2_ROWS = 2000
+MAX_EXPANSION_INVALID_RATE = 0.02
+MAX_EXPANSION_CONFLICT_RATE = 0.001
+MAX_EXPANSION_DUPLICATE_CONFLICT_RATE = 0.01
 
 
 @dataclass(frozen=True)
@@ -62,6 +90,273 @@ CANDIDATE_POOL = (
     CandidateSpec("MARICO", "miscellaneous"),
     CandidateSpec("UNILEVERCL", "miscellaneous"),
 )
+
+
+def _coverage_days(start: str | None, end: str | None) -> int:
+    if not start or not end:
+        return 0
+    return (date.fromisoformat(end) - date.fromisoformat(start)).days + 1
+
+
+def freeze_independent_universe_candidate(
+    methodology: dict[str, Any],
+    *,
+    specs: Sequence[CandidateSpec] | None = None,
+) -> dict[str, Any]:
+    """Freeze a review-only expansion using corrected row dispositions, never returns."""
+    active = set(ACTIVE_RESEARCH_UNIVERSE)
+    candidate_specs = tuple(
+        specs
+        if specs is not None
+        else (spec for spec in CANDIDATE_POOL if spec.symbol not in active)
+    )
+    expected_symbols = {spec.symbol for spec in candidate_specs}
+    if set(methodology["scope"]) != expected_symbols:
+        raise ValueError("Corrected methodology scope does not match the expansion candidate pool")
+
+    lifecycle_by_symbol = {str(row["symbol"]): row for row in methodology["lifecycle_evidence"]}
+    summary_by_symbol = {str(row["symbol"]): row for row in methodology["symbol_summary"]}
+    dispositions_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in methodology["candidates"]:
+        dispositions_by_symbol[str(row["symbol"])].append(row)
+
+    candidate_rows: list[dict[str, Any]] = []
+    for spec in candidate_specs:
+        summary = summary_by_symbol[spec.symbol]
+        dispositions = dispositions_by_symbol[spec.symbol]
+        tier_2_grains = Counter(
+            str(row["adjustment_status"])
+            for row in dispositions
+            if row["status"] == "tier_2_single_source_high_quality"
+        )
+        tier_3_grains = Counter(
+            str(row["adjustment_status"])
+            for row in dispositions
+            if row["status"] == "tier_3_research_only"
+        )
+        tier_2_sources = sorted(
+            {
+                str(source)
+                for row in dispositions
+                if row["status"] == "tier_2_single_source_high_quality"
+                for source in row["source_names"]
+            }
+        )
+        lifecycle = lifecycle_by_symbol[spec.symbol]
+        coverage = lifecycle["conservative_research_window"]
+        raw_rows = int(summary["raw_rows"])
+        logical_rows = int(summary["logical_rows"])
+        tier_2_rows = int(summary["tier_2_single_source_high_quality"])
+        adjusted_tier_2_rows = tier_2_grains["adjusted"]
+        conflict_count = int(summary["held_genuine_conflict"])
+        invalid_rows = int(summary["rejected_invalid"])
+        duplicate_conflicts = int(summary["rejected_duplicate_conflict"])
+        invalid_rate = _safe_rate(invalid_rows, raw_rows)
+        conflict_rate = _safe_rate(conflict_count, logical_rows)
+        duplicate_conflict_rate = _safe_rate(duplicate_conflicts, logical_rows)
+        blockers: list[str] = []
+        if tier_2_rows < MIN_EXPANSION_TIER_2_ROWS:
+            blockers.append("tier_2_rows_below_5000")
+        if adjusted_tier_2_rows < MIN_EXPANSION_ADJUSTED_TIER_2_ROWS:
+            blockers.append("adjusted_tier_2_rows_below_2000")
+        if invalid_rate > MAX_EXPANSION_INVALID_RATE:
+            blockers.append("invalid_rate_above_2_percent")
+        if conflict_rate > MAX_EXPANSION_CONFLICT_RATE:
+            blockers.append("genuine_conflict_rate_above_0_1_percent")
+        if duplicate_conflict_rate > MAX_EXPANSION_DUPLICATE_CONFLICT_RATE:
+            blockers.append("duplicate_conflict_rate_above_1_percent")
+        if not tier_2_sources:
+            blockers.append("no_tier_2_source_lineage")
+        candidate_rows.append(
+            {
+                "record_type": "candidate",
+                "symbol": spec.symbol,
+                "sector": spec.sector,
+                "sector_evidence": "provisional_operator_review_catalog_not_exchange_verified",
+                "sources": tier_2_sources,
+                "coverage_start": coverage["start"],
+                "coverage_end": coverage["end"],
+                "coverage_basis": coverage["basis"],
+                "coverage_calendar_days": _coverage_days(coverage["start"], coverage["end"]),
+                "tier_1_rows": int(summary["tier_1_cross_source_confirmed"]),
+                "tier_2_rows": tier_2_rows,
+                "tier_2_adjusted_rows": adjusted_tier_2_rows,
+                "tier_2_unadjusted_rows": tier_2_grains["unadjusted"],
+                "tier_3_rows": int(summary["tier_3_research_only"]),
+                "tier_3_adjustment_grains": dict(sorted(tier_3_grains.items())),
+                "genuine_conflicts": conflict_count,
+                "lifecycle_holds": int(summary["lifecycle_holds"]),
+                "lifecycle_status": lifecycle["lifecycle_status"],
+                "invalid_rows": invalid_rows,
+                "invalid_rate": round(invalid_rate, 8),
+                "duplicate_groups": int(summary["duplicate_groups"]),
+                "exact_duplicates_collapsed": int(summary["exact_duplicates_collapsed"]),
+                "duplicate_conflicts": duplicate_conflicts,
+                "validation_comparison_dates": int(summary["validation_comparison_dates"]),
+                "source_independence": summary["validation_independence"],
+                "known_adjustment_grain": tier_2_rows > 0,
+                "complete_lineage": tier_2_rows > 0,
+                "high_confidence_mapping": tier_2_rows > 0,
+                "quality_gate_passed": not blockers,
+                "quality_gate_blockers": blockers,
+                "recommended": False,
+                "active": False,
+                "readiness_status": "not_recommended"
+                if blockers
+                else "quality_eligible_not_selected",
+            }
+        )
+
+    active_sector_counts = Counter(spec.sector for spec in CANDIDATE_POOL if spec.symbol in active)
+    recommended: list[dict[str, Any]] = []
+    selected_symbols: set[str] = set()
+    sector_counts = Counter(active_sector_counts)
+    eligible = [row for row in candidate_rows if row["quality_gate_passed"]]
+
+    def quality_order(row: dict[str, Any]) -> tuple[Any, ...]:
+        return (
+            -int(row["tier_2_adjusted_rows"]),
+            -int(row["tier_2_rows"]),
+            -int(row["coverage_calendar_days"]),
+            int(row["genuine_conflicts"]),
+            int(row["invalid_rows"]),
+            int(row["duplicate_conflicts"]),
+            -int(row["validation_comparison_dates"]),
+            str(row["symbol"]),
+        )
+
+    def add(row: dict[str, Any]) -> None:
+        sector = str(row["sector"])
+        symbol = str(row["symbol"])
+        if symbol in selected_symbols or sector_counts[sector] >= MAX_PER_SECTOR:
+            return
+        recommended.append(row)
+        selected_symbols.add(symbol)
+        sector_counts[sector] += 1
+
+    missing_sectors = sorted({str(row["sector"]) for row in eligible} - set(active_sector_counts))
+    for sector in missing_sectors:
+        add(min((row for row in eligible if row["sector"] == sector), key=quality_order))
+    for row in sorted(eligible, key=quality_order):
+        add(row)
+        if len(recommended) == EXPANSION_CANDIDATE_COUNT:
+            break
+    if len(recommended) != EXPANSION_CANDIDATE_COUNT:
+        raise ValueError("Data-quality and sector gates could not produce 15 expansion candidates")
+
+    for row in candidate_rows:
+        if row["symbol"] in selected_symbols:
+            row["recommended"] = True
+            row["readiness_status"] = "recommended_pending_human_review_not_active"
+        elif row["quality_gate_passed"]:
+            row["readiness_status"] = "eligible_not_selected_under_size_and_sector_cap"
+
+    conflict_records: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in methodology["conflict_approval_records"]:
+        conflict_records[str(row["symbol"])].append(row)
+    review_queue: list[dict[str, Any]] = []
+    for symbol in sorted(selected_symbols):
+        row = next(item for item in candidate_rows if item["symbol"] == symbol)
+        review_queue.append(
+            {
+                "record_type": "human_review",
+                "review_type": "lifecycle_evidence",
+                "symbol": symbol,
+                "decision_required": "confirm or conservatively approve the observed research window",
+                "evidence_status": row["lifecycle_status"],
+                "default_action": "hold_not_active",
+            }
+        )
+        if conflict_records[symbol]:
+            review_queue.append(
+                {
+                    "record_type": "human_review",
+                    "review_type": "genuine_conflict_resolution",
+                    "symbol": symbol,
+                    "decision_required": "resolve each same-grain OHLC disagreement without averaging",
+                    "conflict_count": len(conflict_records[symbol]),
+                    "dates": sorted({str(item["date"]) for item in conflict_records[symbol]}),
+                    "default_action": "hold_conflicting_rows_not_active",
+                }
+            )
+    review_queue.append(
+        {
+            "record_type": "human_review",
+            "review_type": "sector_evidence",
+            "symbol": "MULTIPLE",
+            "symbols": sorted(selected_symbols),
+            "decision_required": "confirm provisional sector labels from registered authoritative evidence",
+            "default_action": "retain_provisional_labels_not_active",
+        }
+    )
+
+    candidate_rows.sort(key=lambda row: str(row["symbol"]))
+    recommended_symbols = [str(row["symbol"]) for row in recommended]
+    return {
+        "schema": "independent_universe_expansion_v1",
+        "qualification": "0/60",
+        "active_research_universe_unchanged": list(ACTIVE_RESEARCH_UNIVERSE),
+        "frozen_strategy_identities_unchanged": list(FROZEN_STRATEGY_IDENTITIES),
+        "strategy_calculations_performed": False,
+        "strategy_execution": False,
+        "activation": False,
+        "selection_policy": {
+            "performance_fields_read": False,
+            "ranking_inputs": [
+                "adjusted Tier-2 rows",
+                "total Tier-2 rows",
+                "known-adjustment coverage duration",
+                "genuine-conflict count",
+                "invalid-row count",
+                "duplicate-conflict count",
+                "distinct-file comparison dates",
+                "provisional sector diversity",
+            ],
+            "minimum_tier_2_rows": MIN_EXPANSION_TIER_2_ROWS,
+            "minimum_adjusted_tier_2_rows": MIN_EXPANSION_ADJUSTED_TIER_2_ROWS,
+            "maximum_invalid_rate": MAX_EXPANSION_INVALID_RATE,
+            "maximum_genuine_conflict_rate": MAX_EXPANSION_CONFLICT_RATE,
+            "maximum_duplicate_conflict_rate": MAX_EXPANSION_DUPLICATE_CONFLICT_RATE,
+            "maximum_total_symbols_per_provisional_sector": MAX_PER_SECTOR,
+            "tier_1_requires_proven_independence": True,
+        },
+        "candidate_symbols_inspected": len(candidate_rows),
+        "recommended_symbols": recommended_symbols,
+        "expected_achievable_final_universe_size": len(ACTIVE_RESEARCH_UNIVERSE)
+        + len(recommended_symbols),
+        "candidates": candidate_rows,
+        "human_review_queue": review_queue,
+        "sector_counts_if_approved": dict(sorted(sector_counts.items())),
+        "corrected_methodology_totals": methodology["totals"],
+        "source_hierarchy": methodology["source_hierarchy"],
+        "no_mutation_assertions": {
+            "datasets_activated": 0,
+            "strategies_registered": 0,
+            "campaigns_created": 0,
+            "sessions_created": 0,
+            "signals_created": 0,
+            "orders_created": 0,
+            "transactions_created": 0,
+            "fills_created": 0,
+            "broker_connections": 0,
+        },
+    }
+
+
+def build_independent_universe_expansion(
+    database_path: Path,
+    conflict_path: Path,
+    source_quality_path: Path,
+) -> dict[str, Any]:
+    """Apply the existing corrected reconciler to all non-active candidates."""
+    specs = tuple(spec for spec in CANDIDATE_POOL if spec.symbol not in ACTIVE_RESEARCH_UNIVERSE)
+    methodology = build_pilot_methodology_audit(
+        database_path,
+        conflict_path,
+        source_quality_path,
+        symbols=tuple(spec.symbol for spec in specs),
+    )
+    return freeze_independent_universe_candidate(methodology, specs=specs)
 
 
 def _weekday_count(start: str | None, end: str | None) -> int:
