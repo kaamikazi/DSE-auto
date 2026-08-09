@@ -233,3 +233,38 @@ def test_common_window_reproduction_benchmarks_costs_and_cash() -> None:
         "half_equal_weight_equities_half_cash",
     }
     assert all(run.metrics["minimum_cash_bdt"] >= -1e-7 for run in benchmarks.values())
+
+
+def test_assessment_fails_closed_on_negative_leave_one_out_result() -> None:
+    metrics = {
+        "total_return_percent": 20.0,
+        "maximum_drawdown_percent": -10.0,
+        "sharpe_ratio": 1.0,
+    }
+    common = {
+        "primary": {
+            "metrics": metrics,
+            "largest_absolute_contributor_share": 0.20,
+            "dataset_contribution_bdt": {"old": 50.0, "new": 50.0},
+        },
+        "walk_forward": {
+            "partitions": [
+                {"holdout": {"metrics": {"total_return_percent": value}}}
+                for value in (5.0, 4.0, 3.0)
+            ],
+            "combined_holdout": {"metrics": {"total_return_percent": 12.0}},
+        },
+        "subperiods": [{"metrics": {"total_return_percent": value}} for value in (4.0, 3.0, 2.0)],
+        "benchmarks": {
+            "equal_weight_buy_and_hold": {"metrics": {"maximum_drawdown_percent": -12.0}}
+        },
+        "costs_erase_most_of_gross": False,
+    }
+    natural = {"primary": {"metrics": metrics}}
+    assessment = validation._assessment(  # noqa: SLF001
+        common,
+        natural,
+        {"DEPENDENT": {"return_percent": -1.0}},
+    )
+    assert assessment["criteria"]["not_dominated_by_one_symbol"] is False
+    assert assessment["assessment"] == "remains_inconclusive"

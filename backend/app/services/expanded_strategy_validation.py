@@ -805,13 +805,18 @@ def _assessment(
     natural_return = float(
         cast(Mapping[str, Any], natural["primary"])["metrics"]["total_return_percent"]
     )
+    worst_leave_one_out = min(
+        (float(item["return_percent"]) for item in leave_one_out.values()), default=0.0
+    )
     checks = {
         "combined_walk_forward_positive": float(
             cast(Mapping[str, Any], walk["combined_holdout"])["metrics"]["total_return_percent"]
         )
         > 0,
         "holdouts_not_catastrophically_unstable": min(holdout_returns) > -50,
-        "not_dominated_by_one_symbol": float(primary["largest_absolute_contributor_share"]) <= 0.50,
+        "not_dominated_by_one_symbol": (
+            float(primary["largest_absolute_contributor_share"]) <= 0.50 and worst_leave_one_out > 0
+        ),
         "not_dominated_by_one_dataset": largest_dataset_share <= 0.70,
         "not_dominated_by_one_subperiod": sum(value > 0 for value in subperiod_returns) >= 2,
         "costs_do_not_erase_most_of_gross": not bool(common["costs_erase_most_of_gross"]),
@@ -823,9 +828,6 @@ def _assessment(
         "expanded_behavior_does_not_contradict_hypothesis": common_return > 0
         and float(metrics["sharpe_ratio"] or 0) > 0,
     }
-    worst_leave_one_out = min(
-        (float(item["return_percent"]) for item in leave_one_out.values()), default=0.0
-    )
     if all(checks.values()):
         assessment = "survives_expanded_validation"
     elif (
