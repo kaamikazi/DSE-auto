@@ -30,10 +30,11 @@ def create_session(
     strategies: list[str],
     risk_profile: dict[str, Any],
     fill_model: str = "pessimistic",
+    account_id: int = 1,
 ) -> PaperSession:
     if fill_model not in {"pessimistic", "balanced", "optimistic"}:
         raise ValueError("Unknown fill model")
-    account = db.get(PaperAccount, 1)
+    account = db.get(PaperAccount, account_id)
     if account is None:
         raise ValueError("Paper account is not initialized")
     rule_set = db.scalar(
@@ -45,6 +46,7 @@ def create_session(
     fee_profile = db.scalar(select(FeeProfile).order_by(FeeProfile.effective_date.desc()).limit(1))
     session = PaperSession(
         name=name,
+        account_id=account_id,
         starting_cash=account.cash,
         approved_universe=sorted(set(universe)),
         strategies=sorted(set(strategies)),
@@ -62,6 +64,7 @@ def create_session(
         entity_id=session.id,
         new_state={
             "name": name,
+            "account_id": account_id,
             "fill_model": fill_model,
             "market_rule_set_id": session.market_rule_set_id,
             "fee_profile_id": session.fee_profile_id,

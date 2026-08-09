@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from app.core.database import SessionLocal
 from app.core.database_identity import REPOSITORY_ROOT
+from app.services.forward_paper_validation import ForwardPaperValidationRunner
 from app.services.minimal_v1 import MinimalV1Facade
 
 
@@ -22,6 +24,20 @@ def build_parser() -> argparse.ArgumentParser:
     reproduce = commands.add_parser("reproduce")
     reproduce.add_argument("run_id", nargs="?")
     reproduce.add_argument("--output-dir", type=Path)
+    commands.add_parser("forward-status")
+    forward_start = commands.add_parser("forward-start")
+    forward_start.add_argument("--mode", choices=("forward", "replay"), default="forward")
+    forward_start.add_argument("--start-date", type=datetime.fromisoformat)
+    forward_start.add_argument("--end-date", type=datetime.fromisoformat)
+    forward_start.add_argument("--starting-cash", type=Decimal, default=Decimal("1000000.00"))
+    forward_start.add_argument("--poll-seconds", type=int, default=60)
+    forward_start.add_argument("--resume-emergency", action="store_true")
+    commands.add_parser("forward-stop")
+    emergency = commands.add_parser("forward-emergency")
+    emergency.add_argument("reason")
+    commands.add_parser("forward-portfolio")
+    commands.add_parser("forward-decision")
+    commands.add_parser("forward-reconcile")
     return parser
 
 
@@ -47,7 +63,7 @@ def main() -> int:
                 if args.run_id
                 else [item.model_dump(mode="json") for item in facade.historical_runs()]
             )
-        else:
+        elif args.command == "reproduce":
             output = args.output_dir or (
                 REPOSITORY_ROOT
                 / "reports"
@@ -63,6 +79,38 @@ def main() -> int:
                 "json_sha256": reproduced["json_sha256"],
                 "trade_rows": reproduced["trade_rows"],
             }
+        else:
+            runner = ForwardPaperValidationRunner(db)
+            if args.command == "forward-status":
+                payload = runner.status()
+            elif args.command == "forward-start":
+                with runner.lock:
+                    if args.mode == "replay":
+                        if args.start_date is None or args.end_date is None:
+                            raise ValueError("Replay requires --start-date and --end-date")
+                        payload = runner.run_replay(
+                            args.start_date.date(),
+                            args.end_date.date(),
+                            starting_cash=args.starting_cash,
+                            resume_emergency=args.resume_emergency,
+                        )
+                    else:
+                        runner.run_forever(
+                            starting_cash=args.starting_cash,
+                            poll_seconds=args.poll_seconds,
+                            resume_emergency=args.resume_emergency,
+                        )
+                        payload = runner.status()
+            elif args.command == "forward-stop":
+                payload = runner.stop()
+            elif args.command == "forward-emergency":
+                payload = runner.emergency_halt(args.reason)
+            elif args.command == "forward-portfolio":
+                payload = runner.portfolio()
+            elif args.command == "forward-decision":
+                payload = runner.latest_decision()
+            else:
+                payload = runner.reconcile()
         print(_json(payload))
     return 0
 

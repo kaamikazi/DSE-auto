@@ -23,15 +23,21 @@ class PaperBroker(BrokerAdapter):
         slippage_percent: Decimal = Decimal("0.10"),
         fill_model: str = "pessimistic",
         rules: DSEExecutionRules | None = None,
+        account_id: int = 1,
+        account_label: str = "paper",
+        source_metadata: dict[str, object] | None = None,
     ) -> None:
         self.db = db
         self.participation_rate = participation_rate
         self.slippage_percent = slippage_percent
         self.fill_model = fill_model
         self.rules = rules
+        self.account_id = account_id
+        self.account_label = account_label
+        self.source_metadata = source_metadata or {}
 
     def _account(self) -> PaperAccount:
-        account = self.db.get(PaperAccount, 1)
+        account = self.db.get(PaperAccount, self.account_id)
         if account is None:
             raise RuntimeError("Paper account is not initialized")
         return account
@@ -188,9 +194,13 @@ class PaperBroker(BrokerAdapter):
                 fees=fee,
                 taxes=Decimal("0"),
                 broker="paper",
-                account_label="paper",
+                account_label=self.account_label,
                 notes=f"Paper fill for {order.id}",
-                source_record={"order_id": order.id, "simulated": True},
+                source_record={
+                    "order_id": order.id,
+                    "simulated": True,
+                    **self.source_metadata,
+                },
                 campaign_id=order.campaign_id,
             )
         )
@@ -227,7 +237,12 @@ class PaperBroker(BrokerAdapter):
 
     def _held_quantity(self, symbol: str) -> int:
         total = Decimal("0")
-        for tx in self.db.scalars(select(Transaction).where(Transaction.symbol == symbol)):
+        for tx in self.db.scalars(
+            select(Transaction).where(
+                Transaction.symbol == symbol,
+                Transaction.account_label == self.account_label,
+            )
+        ):
             if tx.transaction_type in {"buy", "rights", "bonus"}:
                 total += tx.quantity
             elif tx.transaction_type == "sell":
@@ -263,15 +278,22 @@ class PaperBroker(BrokerAdapter):
 
     def reconcile(self) -> dict[str, object]:
         account = self._account()
+        duplicate_query = select(Order.idempotency_key)
+        if self.account_id != 1:
+            duplicate_query = duplicate_query.where(
+                Order.idempotency_key.like(f"fv:{self.account_id}:%")
+            )
         duplicate_count = self.db.scalar(
-            select(Order.idempotency_key)
-            .group_by(Order.idempotency_key)
-            .having(__import__("sqlalchemy").func.count() > 1)
+            duplicate_query.group_by(Order.idempotency_key).having(
+                __import__("sqlalchemy").func.count() > 1
+            )
         )
         derived_cash = account.starting_cash
         transactions = self.db.scalars(
             select(Transaction).where(
-                or_(
+                Transaction.account_label == self.account_label
+                if self.account_id != 1
+                else or_(
                     Transaction.account_label.is_(None),
                     Transaction.account_label.in_(("paper", "simulation")),
                 )
@@ -303,16 +325,18 @@ class PaperBroker(BrokerAdapter):
             self.db,
             "reconciliation_completed",
             aggregate_type="paper_account",
-            aggregate_id="1",
+            aggregate_id=str(self.account_id),
             payload=result,
-            idempotency_key=f"reconciliation:{len(transactions)}:{account.cash}",
+            idempotency_key=(
+                f"reconciliation:{self.account_id}:{len(transactions)}:{account.cash}"
+            ),
         )
         audit = append_audit(
             self.db,
             actor="paper_broker",
             event_type="paper.reconciliation_completed",
             entity_type="paper_account",
-            entity_id="1",
+            entity_id=str(self.account_id),
             new_state=result,
         )
         event.audit_event_id = audit.id
@@ -327,6 +351,6 @@ class PaperBroker(BrokerAdapter):
             actor="user",
             event_type="paper_account.reset",
             entity_type="paper_account",
-            entity_id="1",
+            entity_id=str(self.account_id),
         )
         self.db.commit()
