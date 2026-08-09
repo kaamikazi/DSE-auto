@@ -385,6 +385,13 @@ def test_cli_and_complexity_budget_have_no_hidden_surface() -> None:
         "strategies",
         "runs",
         "reproduce",
+        "forward-status",
+        "forward-start",
+        "forward-stop",
+        "forward-emergency",
+        "forward-portfolio",
+        "forward-decision",
+        "forward-reconcile",
     }
     import app.schemas.minimal_v1 as schemas_module
     import app.services.minimal_v1 as service_module
