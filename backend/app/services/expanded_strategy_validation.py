@@ -698,7 +698,7 @@ def _benchmark_runs(
 
 
 def _summary(run: PortfolioRun, symbol_origins: Mapping[str, str]) -> dict[str, Any]:
-    base = cast(dict[str, Any], _portfolio_summary(run))
+    base = _portfolio_summary(run)
     contributions = {key: float(value) for key, value in run.symbol_contribution.items()}
     absolute = {key: abs(value) for key, value in contributions.items()}
     absolute_total = sum(absolute.values())
