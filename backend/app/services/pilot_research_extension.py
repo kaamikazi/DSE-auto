@@ -39,6 +39,173 @@ EXPECTED_EXCLUSIONS = {
         "rejected_duplicate_conflict": 14,
     },
 }
+INDEPENDENT_EXTENSION_SYMBOLS = (
+    "HEIDELBCEM",
+    "GPHISPAT",
+    "GREENDELT",
+    "PARAMOUNT",
+    "OLYMPIC",
+    "JAMUNABANK",
+    "MJLBD",
+    "CITYBANK",
+    "AMCL(PRAN)",
+    "DBH",
+    "MARICO",
+    "UNILEVERCL",
+    "SUMITPOWER",
+    "SQUARETEXT",
+    "RELIANCINS",
+)
+INDEPENDENT_EXPECTED_ADJUSTED_COUNTS = {
+    "HEIDELBCEM": 3117,
+    "GPHISPAT": 3137,
+    "GREENDELT": 3111,
+    "PARAMOUNT": 3152,
+    "OLYMPIC": 3160,
+    "JAMUNABANK": 3156,
+    "MJLBD": 3155,
+    "CITYBANK": 3153,
+    "AMCL(PRAN)": 3147,
+    "DBH": 3117,
+    "MARICO": 3114,
+    "UNILEVERCL": 3106,
+    "SUMITPOWER": 3104,
+    "SQUARETEXT": 3102,
+    "RELIANCINS": 3065,
+}
+INDEPENDENT_EXPECTED_TOTAL_COUNTS = {
+    "HEIDELBCEM": 6233,
+    "GPHISPAT": 6273,
+    "GREENDELT": 6220,
+    "PARAMOUNT": 6302,
+    "OLYMPIC": 6318,
+    "JAMUNABANK": 6311,
+    "MJLBD": 6309,
+    "CITYBANK": 6305,
+    "AMCL(PRAN)": 6292,
+    "DBH": 6234,
+    "MARICO": 6226,
+    "UNILEVERCL": 6211,
+    "SUMITPOWER": 6208,
+    "SQUARETEXT": 6202,
+    "RELIANCINS": 6130,
+}
+INDEPENDENT_EXPECTED_EXCLUSIONS = {
+    "HEIDELBCEM": {
+        "tier_3_research_only": 5047,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 5,
+        "rejected_invalid": 6,
+        "rejected_duplicate_conflict": 14,
+    },
+    "GPHISPAT": {
+        "tier_3_research_only": 3017,
+        "held_lifecycle": 3,
+        "rejected_invalid": 14,
+        "rejected_duplicate_conflict": 14,
+    },
+    "GREENDELT": {
+        "tier_3_research_only": 5234,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 6,
+        "rejected_invalid": 10,
+        "rejected_duplicate_conflict": 13,
+    },
+    "PARAMOUNT": {
+        "tier_3_research_only": 4102,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 1,
+        "rejected_invalid": 2,
+        "rejected_duplicate_conflict": 12,
+    },
+    "OLYMPIC": {
+        "tier_3_research_only": 4164,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 2,
+        "rejected_invalid": 2,
+        "rejected_duplicate_conflict": 14,
+    },
+    "JAMUNABANK": {
+        "tier_3_research_only": 4453,
+        "held_lifecycle": 1,
+        "rejected_invalid": 6,
+        "rejected_duplicate_conflict": 14,
+    },
+    "MJLBD": {
+        "tier_3_research_only": 3228,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 5,
+        "rejected_invalid": 3,
+        "rejected_duplicate_conflict": 14,
+    },
+    "CITYBANK": {
+        "tier_3_research_only": 5176,
+        "held_genuine_conflict": 2,
+        "held_lifecycle": 4,
+        "rejected_invalid": 6,
+        "rejected_duplicate_conflict": 14,
+    },
+    "AMCL(PRAN)": {
+        "tier_3_research_only": 6338,
+        "held_genuine_conflict": 1,
+        "rejected_invalid": 7,
+        "rejected_duplicate_conflict": 14,
+    },
+    "DBH": {
+        "tier_3_research_only": 3948,
+        "held_lifecycle": 4,
+        "rejected_invalid": 30,
+        "rejected_duplicate_conflict": 13,
+    },
+    "MARICO": {
+        "tier_3_research_only": 3609,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 4,
+        "rejected_invalid": 6,
+        "rejected_duplicate_conflict": 14,
+    },
+    "UNILEVERCL": {
+        "tier_3_research_only": 1009,
+        "held_lifecycle": 6,
+        "rejected_invalid": 2,
+        "rejected_duplicate_conflict": 14,
+    },
+    "SUMITPOWER": {
+        "tier_3_research_only": 4496,
+        "held_lifecycle": 1,
+        "rejected_invalid": 21,
+        "rejected_duplicate_conflict": 14,
+    },
+    "SQUARETEXT": {
+        "tier_3_research_only": 5506,
+        "held_genuine_conflict": 1,
+        "rejected_invalid": 54,
+        "rejected_duplicate_conflict": 14,
+    },
+    "RELIANCINS": {
+        "tier_3_research_only": 4018,
+        "held_genuine_conflict": 1,
+        "held_lifecycle": 9,
+        "rejected_invalid": 4,
+        "rejected_duplicate_conflict": 14,
+    },
+}
+INDEPENDENT_CONFLICTS = (
+    ("AMCL(PRAN)", "2021-04-26", "unadjusted"),
+    ("CITYBANK", "2021-04-26", "unadjusted"),
+    ("CITYBANK", "2023-04-16", "adjusted"),
+    ("GREENDELT", "2021-04-26", "unadjusted"),
+    ("HEIDELBCEM", "2021-04-26", "unadjusted"),
+    ("MARICO", "2021-04-26", "unadjusted"),
+    ("MJLBD", "2021-04-26", "unadjusted"),
+    ("OLYMPIC", "2021-04-26", "unadjusted"),
+    ("PARAMOUNT", "2021-04-26", "unadjusted"),
+    ("RELIANCINS", "2021-04-26", "unadjusted"),
+    ("SQUARETEXT", "2021-04-26", "unadjusted"),
+)
+INDEPENDENT_TRANSFORMATION_VERSION = "independent-fifteen-t2-extension-v1"
+INDEPENDENT_RECONCILED_ROWS = 157560
+FROZEN_CANDIDATE_REVIEW_SHA256 = "19fd34b291dd21b053db7dfc56392e5c3d2b0d36ef6655ded65432a007ac161f"
 INELIGIBLE_DISPOSITIONS = {
     "tier_3_research_only",
     "held_genuine_conflict",
@@ -304,6 +471,115 @@ def build_extension_rows(
     }
 
 
+def verify_independent_execution_grain(
+    rows: Sequence[dict[str, Any]],
+    *,
+    expected_adjusted_counts: Mapping[str, int] = INDEPENDENT_EXPECTED_ADJUSTED_COUNTS,
+    expected_total_counts: Mapping[str, int] = INDEPENDENT_EXPECTED_TOTAL_COUNTS,
+) -> dict[str, Any]:
+    """Verify that alternative T2 grains cannot duplicate the adjusted execution view."""
+    symbols = tuple(expected_total_counts)
+    if set(expected_adjusted_counts) != set(symbols):
+        raise ValueError("Adjusted and total count contracts cover different symbols")
+    total_counts = Counter(str(row.get("symbol")) for row in rows)
+    adjusted_counts = Counter(
+        str(row.get("symbol")) for row in rows if row.get("adjustment_status") == "adjusted"
+    )
+    unadjusted_counts = Counter(
+        str(row.get("symbol")) for row in rows if row.get("adjustment_status") == "unadjusted"
+    )
+    full_keys = [
+        (str(row.get("symbol")), str(row.get("date")), str(row.get("adjustment_status")))
+        for row in rows
+    ]
+    adjusted_keys = [
+        (str(row.get("symbol")), str(row.get("date")))
+        for row in rows
+        if row.get("adjustment_status") == "adjusted"
+    ]
+    if dict(total_counts) != dict(expected_total_counts):
+        raise ValueError("Independent-extension total T2 counts drifted")
+    if dict(adjusted_counts) != dict(expected_adjusted_counts):
+        raise ValueError("Independent-extension adjusted T2 counts drifted")
+    if len(full_keys) != len(set(full_keys)):
+        raise ValueError("Duplicate symbol/date/adjustment grain in independent extension")
+    if len(adjusted_keys) != len(set(adjusted_keys)):
+        raise ValueError("Duplicate symbol/date in adjusted execution grain")
+    if any(
+        row.get("final_disposition") != ALLOWED_DISPOSITION
+        or row.get("adjustment_status") not in {"adjusted", "unadjusted"}
+        for row in rows
+    ):
+        raise ValueError("Ineligible disposition or adjustment grain reached extension")
+    if any(any(str(key).lower().startswith("sector") for key in row) for row in rows):
+        raise ValueError("Provisional sector metadata reached normalized strategy rows")
+    return {
+        "approved_dataset_rows": len(rows),
+        "adjusted_execution_rows": sum(adjusted_counts.values()),
+        "unadjusted_non_execution_research_rows": sum(unadjusted_counts.values()),
+        "adjusted_execution_by_symbol": dict(adjusted_counts),
+        "unadjusted_non_execution_by_symbol": dict(unadjusted_counts),
+        "full_grain_duplicates": 0,
+        "adjusted_symbol_date_duplicates": 0,
+        "execution_grain": "adjusted",
+        "unadjusted_execution_eligible": False,
+        "sector_fields_in_normalized_rows": False,
+    }
+
+
+def build_independent_extension_rows(
+    dispositions: Sequence[dict[str, Any]],
+    observations_by_row_id: Mapping[str, dict[str, Any]],
+    *,
+    activation_timestamp: str,
+    human_decision_ids: Mapping[str, str],
+    audit_event_ids: Mapping[str, str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Build the authorized fifteen-symbol T2 dataset with adjusted execution isolation."""
+    windows = {symbol: dict(OBSERVED_WINDOW) for symbol in INDEPENDENT_EXTENSION_SYMBOLS}
+    rows, summary = build_extension_rows(
+        dispositions,
+        observations_by_row_id,
+        activation_timestamp=activation_timestamp,
+        human_decision_ids=human_decision_ids,
+        audit_event_ids=audit_event_ids,
+        expected_active_counts=INDEPENDENT_EXPECTED_TOTAL_COUNTS,
+        expected_exclusions=INDEPENDENT_EXPECTED_EXCLUSIONS,
+        expected_reconciled_rows=INDEPENDENT_RECONCILED_ROWS,
+        target_symbols=INDEPENDENT_EXTENSION_SYMBOLS,
+        blocked_symbols=(),
+        observed_windows=windows,
+        transformation_version=INDEPENDENT_TRANSFORMATION_VERSION,
+    )
+    grain = verify_independent_execution_grain(rows)
+    summary.update(
+        {
+            **grain,
+            "coverage": {
+                symbol: {
+                    "start": OBSERVED_WINDOW["start"],
+                    "end": OBSERVED_WINDOW["end"],
+                    "rows": INDEPENDENT_EXPECTED_TOTAL_COUNTS[symbol],
+                    "adjusted_rows": INDEPENDENT_EXPECTED_ADJUSTED_COUNTS[symbol],
+                    "unadjusted_rows": (
+                        INDEPENDENT_EXPECTED_TOTAL_COUNTS[symbol]
+                        - INDEPENDENT_EXPECTED_ADJUSTED_COUNTS[symbol]
+                    ),
+                    "official_lifecycle_claim": False,
+                    "lifecycle_evidence": "pending",
+                }
+                for symbol in INDEPENDENT_EXTENSION_SYMBOLS
+            },
+            "lifecycle_evidence_pending": list(INDEPENDENT_EXTENSION_SYMBOLS),
+            "sector_evidence_pending": list(INDEPENDENT_EXTENSION_SYMBOLS),
+            "provisional_sector_required_by_strategy": False,
+            "conflicting_logical_rows_excluded": len(INDEPENDENT_CONFLICTS),
+            "tier_3_execution_eligible": 0,
+        }
+    )
+    return rows, summary
+
+
 def write_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="\n") as handle:
@@ -421,6 +697,123 @@ def decision_specs(
             ]
         )
     return specifications
+
+
+def independent_extension_decision_specs(
+    authorization_sha256: str,
+    *,
+    version: str,
+    frozen_review_sha256: str = FROZEN_CANDIDATE_REVIEW_SHA256,
+    dataset_hash: str | None = None,
+) -> list[dict[str, Any]]:
+    """Record the operator's conservative decisions using existing audit event types."""
+    common = {
+        "authorization_sha256": authorization_sha256,
+        "frozen_candidate_review_sha256": frozen_review_sha256,
+        "qualification": "0/60",
+        "research_only": True,
+    }
+    specs: list[dict[str, Any]] = [
+        {
+            "key": "conflicts_held",
+            "status": "held_genuine_conflict",
+            "event": "research_subset.conflicts_held",
+            "value": {
+                **common,
+                "logical_observations": [
+                    {"symbol": symbol, "date": day, "adjustment_status": adjustment}
+                    for symbol, day, adjustment in INDEPENDENT_CONFLICTS
+                ],
+                "logical_observation_count": len(INDEPENDENT_CONFLICTS),
+                "symbols_affected": len({item[0] for item in INDEPENDENT_CONFLICTS}),
+                "select_neither_source": True,
+                "averaged": False,
+                "active": False,
+            },
+        },
+        {
+            "key": "lifecycle_pending",
+            "status": "lifecycle_evidence_pending",
+            "event": "research_extension.lifecycle_pending",
+            "value": {
+                **common,
+                "symbols": list(INDEPENDENT_EXTENSION_SYMBOLS),
+                "observed_windows": {
+                    symbol: dict(OBSERVED_WINDOW) for symbol in INDEPENDENT_EXTENSION_SYMBOLS
+                },
+                "official_listing_or_delisting_claim": False,
+                "lifecycle_held_rows_excluded": sum(
+                    counts.get("held_lifecycle", 0)
+                    for counts in INDEPENDENT_EXPECTED_EXCLUSIONS.values()
+                ),
+                "active_held_rows": 0,
+            },
+        },
+        {
+            "key": "sector_evidence_pending",
+            "status": "sector_evidence_pending",
+            "event": "research_extension.lifecycle_pending",
+            "value": {
+                **common,
+                "symbols": list(INDEPENDENT_EXTENSION_SYMBOLS),
+                "metadata_status": "provisional",
+                "required_by_frozen_strategies": False,
+                "included_in_normalized_rows": False,
+            },
+        },
+        {
+            "key": "row_exclusions",
+            "status": "excluded",
+            "event": "research_extension.invalid_duplicate_excluded",
+            "value": {
+                **common,
+                "excluded_by_symbol_and_disposition": INDEPENDENT_EXPECTED_EXCLUSIONS,
+                "tier_3_active": 0,
+                "held_active": 0,
+                "invalid_active": 0,
+                "duplicate_conflict_active": 0,
+            },
+        },
+    ]
+    if dataset_hash is not None:
+        specs.extend(
+            [
+                {
+                    "key": "dataset_activation",
+                    "status": "authorized_research_only",
+                    "event": "research_extension.dataset_activated",
+                    "value": {
+                        **common,
+                        "version": version,
+                        "dataset_hash": dataset_hash,
+                        "symbols": list(INDEPENDENT_EXTENSION_SYMBOLS),
+                        "approved_dataset_rows": sum(INDEPENDENT_EXPECTED_TOTAL_COUNTS.values()),
+                        "adjusted_execution_rows": sum(
+                            INDEPENDENT_EXPECTED_ADJUSTED_COUNTS.values()
+                        ),
+                        "label": ACTIVE_STATUS,
+                    },
+                },
+                {
+                    "key": "strategy_execution_prohibited",
+                    "status": "prohibited",
+                    "event": "research_extension.strategy_execution_prohibited",
+                    "value": {
+                        **common,
+                        "frozen_strategies": [
+                            "ma_crossover@1.0.0",
+                            "cross_sectional_momentum@0.1.0",
+                            "defensive_low_volatility@0.1.0",
+                            "absolute_momentum_filter@0.1.0",
+                        ],
+                        "execution": False,
+                        "promotion": False,
+                        "campaign": False,
+                    },
+                },
+            ]
+        )
+    return specs
 
 
 def record_decision(
@@ -550,6 +943,150 @@ def create_extension_dataset_record(
         data_types=["daily_ohlcv", "adjusted_and_unadjusted", "immutable_lineage"],
         source_evidence_ids=[
             review_evidence_hash,
+            *sorted(item.id for item in decisions.values()),
+        ],
+        source_hash=source_bundle_hash,
+        dataset_hash=dataset_hash,
+        timestamp_trust="unknown",
+        raw_file_path=str(candidate_db_path),
+        normalized_file_path=str(dataset_path),
+        quality_report=quality_report,
+        status="research_dataset_active",
+        approved_by=operator_identity,
+        approved_at=datetime.now(UTC),
+        audit_event_ids=sorted(
+            str(item.audit_event_id) for item in decisions.values() if item.audit_event_id
+        ),
+    )
+    db.add(dataset)
+    db.flush()
+    dataset.quality_report = {
+        **dataset.quality_report,
+        "registry_id": dataset.id,
+        "activation_audit_event_id": activation_approval.audit_event_id,
+    }
+    db.commit()
+    return dataset
+
+
+def create_independent_extension_dataset_record(
+    db: Session,
+    *,
+    version: str,
+    dataset_path: Path,
+    dataset_hash: str,
+    source_bundle_hash: str,
+    source_file_hashes: Sequence[str],
+    candidate_db_path: Path,
+    candidate_db_hash: str,
+    frozen_review_sha256: str,
+    authorization_sha256: str,
+    summary: dict[str, Any],
+    decisions: Mapping[str, GovernanceItemApproval],
+    preserved_datasets: Sequence[ResearchDataset],
+    git_head: str,
+    audit_chain_id: str,
+    operator_identity: str,
+) -> ResearchDataset:
+    """Register one immutable research-only extension while preserving prior identities."""
+    if not verify_audit_chain(db):
+        raise ValueError("Canonical audit chain is invalid")
+    if db.scalar(select(ResearchDataset).where(ResearchDataset.name == version)):
+        raise ValueError("Independent extension version already exists")
+    if not dataset_path.is_file() or hashlib.sha256(dataset_path.read_bytes()).hexdigest() != (
+        dataset_hash
+    ):
+        raise ValueError("Normalized independent-extension file identity mismatch")
+    if set(summary["active_by_symbol"]) != set(INDEPENDENT_EXTENSION_SYMBOLS):
+        raise ValueError("Independent extension symbol scope changed")
+    if summary["adjusted_execution_by_symbol"] != INDEPENDENT_EXPECTED_ADJUSTED_COUNTS:
+        raise ValueError("Adjusted execution-grain count contract changed")
+    if summary["active_by_symbol"] != INDEPENDENT_EXPECTED_TOTAL_COUNTS:
+        raise ValueError("Approved dataset-row count contract changed")
+    if frozen_review_sha256 != FROZEN_CANDIDATE_REVIEW_SHA256:
+        raise ValueError("Frozen candidate-review identity changed")
+    if len(source_file_hashes) == 0 or any(len(value) != 64 for value in source_file_hashes):
+        raise ValueError("Source file hashes are incomplete")
+    preserved = [
+        {
+            "id": item.id,
+            "version": item.name,
+            "dataset_hash": item.dataset_hash,
+            "source_hash": item.source_hash,
+            "symbols": list(item.symbols),
+            "status": item.status,
+        }
+        for item in preserved_datasets
+    ]
+    if len(preserved) != 3 or any(
+        item["status"] != "research_dataset_active" for item in preserved
+    ):
+        raise ValueError("Expected exactly three preserved active dataset identities")
+    existing_symbols = [symbol for item in preserved for symbol in item["symbols"]]
+    expected_existing_symbols = [
+        "GP",
+        "ACI",
+        "BRACBANK",
+        "BATBC",
+        "SQURPHARMA",
+        "IDLC",
+        "LANKABAFIN",
+        "POWERGRID",
+        "RENATA",
+        "BERGERPBL",
+    ]
+    if existing_symbols != expected_existing_symbols:
+        raise ValueError("Existing active research universe is not the frozen ten-symbol universe")
+    combined_symbols = [*existing_symbols, *INDEPENDENT_EXTENSION_SYMBOLS]
+    if len(combined_symbols) != 25 or len(set(combined_symbols)) != 25:
+        raise ValueError("Combined active research universe is not exactly 25 unique symbols")
+    activation_approval = decisions.get("dataset_activation")
+    if activation_approval is None or activation_approval.approval_status != (
+        "authorized_research_only"
+    ):
+        raise ValueError("Research-only dataset activation approval is missing")
+    quality_report = {
+        **summary,
+        "dataset_id": version,
+        "classification": ACTIVE_STATUS,
+        "research_only": True,
+        "qualification": "0/60",
+        "adjustment_grain_contract": {
+            "stored_grains": ["adjusted", "unadjusted"],
+            "logical_relationship": "alternative grains of the same market history",
+            "strategy_execution_grain": "adjusted",
+            "unadjusted_role": "non_execution_research_reference",
+            "combined_into_one_execution_series": False,
+        },
+        "frozen_candidate_review_sha256": frozen_review_sha256,
+        "authorization_sha256": authorization_sha256,
+        "source_file_hashes": sorted(source_file_hashes),
+        "source_bundle_hash": source_bundle_hash,
+        "candidate_database_sha256": candidate_db_hash,
+        "transformation_version": INDEPENDENT_TRANSFORMATION_VERSION,
+        "git_head": git_head,
+        "audit_chain_id": audit_chain_id,
+        "human_decision_ids": sorted(item.id for item in decisions.values()),
+        "preserved_active_dataset_identities": preserved,
+        "combined_active_universe": combined_symbols,
+        "combined_active_universe_count": 25,
+        "exchange_verified": False,
+        "official_lifecycle_verified": False,
+        "sector_evidence_status": "pending",
+        "sector_fields_in_normalized_rows": False,
+        "paper_candidate": False,
+        "strategy_approved": False,
+        "campaign_approved": False,
+        "production_ready": False,
+        "real_money_ready": False,
+    }
+    dataset = ResearchDataset(
+        name=version,
+        symbols=list(INDEPENDENT_EXTENSION_SYMBOLS),
+        data_types=["daily_ohlcv", "adjusted_and_unadjusted", "immutable_lineage"],
+        source_evidence_ids=[
+            frozen_review_sha256,
+            authorization_sha256,
             *sorted(item.id for item in decisions.values()),
         ],
         source_hash=source_bundle_hash,

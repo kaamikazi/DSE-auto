@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ from app.models import (
     GovernanceItemApproval,
     Order,
     PaperSession,
+    ResearchDataset,
     Signal,
     Transaction,
     ValidationCampaign,
@@ -22,11 +24,21 @@ from app.services.pilot_research_extension import (
     ACTIVE_STATUS,
     ALLOWED_DISPOSITION,
     BLOCKED_SYMBOLS,
+    FROZEN_CANDIDATE_REVIEW_SHA256,
+    INDEPENDENT_CONFLICTS,
+    INDEPENDENT_EXPECTED_ADJUSTED_COUNTS,
+    INDEPENDENT_EXPECTED_EXCLUSIONS,
+    INDEPENDENT_EXPECTED_TOTAL_COUNTS,
+    INDEPENDENT_EXTENSION_SYMBOLS,
+    INDEPENDENT_RECONCILED_ROWS,
     OBSERVED_WINDOW,
     build_extension_rows,
     canonical_hash,
+    create_independent_extension_dataset_record,
     decision_specs,
+    independent_extension_decision_specs,
     record_decision,
+    verify_independent_execution_grain,
     write_jsonl,
 )
 
@@ -329,3 +341,179 @@ def test_service_has_no_strategy_or_trading_execution_path(db: Session) -> None:
     }
     assert before == after
     assert ACTIVE_STATUS == "RESEARCH DATASET ACTIVE"
+
+
+def test_independent_extension_frozen_counts_reconcile_exactly() -> None:
+    assert len(INDEPENDENT_EXTENSION_SYMBOLS) == 15
+    assert set(INDEPENDENT_EXPECTED_ADJUSTED_COUNTS) == set(INDEPENDENT_EXTENSION_SYMBOLS)
+    assert set(INDEPENDENT_EXPECTED_TOTAL_COUNTS) == set(INDEPENDENT_EXTENSION_SYMBOLS)
+    assert set(INDEPENDENT_EXPECTED_EXCLUSIONS) == set(INDEPENDENT_EXTENSION_SYMBOLS)
+    assert sum(INDEPENDENT_EXPECTED_ADJUSTED_COUNTS.values()) == 46896
+    assert sum(INDEPENDENT_EXPECTED_TOTAL_COUNTS.values()) == 93774
+    assert (
+        sum(
+            INDEPENDENT_EXPECTED_TOTAL_COUNTS[symbol]
+            + sum(INDEPENDENT_EXPECTED_EXCLUSIONS[symbol].values())
+            for symbol in INDEPENDENT_EXTENSION_SYMBOLS
+        )
+        == INDEPENDENT_RECONCILED_ROWS
+    )
+    assert len(INDEPENDENT_CONFLICTS) == 11
+    assert len({symbol for symbol, _, _ in INDEPENDENT_CONFLICTS}) == 10
+    assert len(FROZEN_CANDIDATE_REVIEW_SHA256) == 64
+
+
+def test_independent_execution_grain_keeps_unadjusted_rows_out_of_execution() -> None:
+    rows = [
+        {
+            "symbol": symbol,
+            "date": "2024-01-01",
+            "adjustment_status": grain,
+            "final_disposition": ALLOWED_DISPOSITION,
+        }
+        for symbol in INDEPENDENT_EXTENSION_SYMBOLS
+        for grain in ("adjusted", "unadjusted")
+    ]
+    expected_adjusted = {symbol: 1 for symbol in INDEPENDENT_EXTENSION_SYMBOLS}
+    expected_total = {symbol: 2 for symbol in INDEPENDENT_EXTENSION_SYMBOLS}
+
+    result = verify_independent_execution_grain(
+        rows,
+        expected_adjusted_counts=expected_adjusted,
+        expected_total_counts=expected_total,
+    )
+
+    assert result["approved_dataset_rows"] == 30
+    assert result["adjusted_execution_rows"] == 15
+    assert result["unadjusted_non_execution_research_rows"] == 15
+    assert result["execution_grain"] == "adjusted"
+    assert result["unadjusted_execution_eligible"] is False
+
+
+def test_independent_execution_grain_rejects_duplicates_and_sector_fields() -> None:
+    rows = [
+        {
+            "symbol": "HEIDELBCEM",
+            "date": "2024-01-01",
+            "adjustment_status": "adjusted",
+            "final_disposition": ALLOWED_DISPOSITION,
+        }
+    ]
+    expected = {"HEIDELBCEM": 1}
+    with pytest.raises(ValueError, match="Duplicate symbol/date/adjustment"):
+        verify_independent_execution_grain(
+            [*rows, *rows],
+            expected_adjusted_counts={"HEIDELBCEM": 2},
+            expected_total_counts={"HEIDELBCEM": 2},
+        )
+    rows[0]["sector"] = "cement"
+    with pytest.raises(ValueError, match="sector metadata"):
+        verify_independent_execution_grain(
+            rows,
+            expected_adjusted_counts=expected,
+            expected_total_counts=expected,
+        )
+
+
+def test_independent_decisions_reuse_audit_types_and_prohibit_execution() -> None:
+    specs = independent_extension_decision_specs(
+        "a" * 64,
+        version="fifteen-symbol-extension-test",
+        dataset_hash="b" * 64,
+    )
+    assert {spec["key"] for spec in specs} == {
+        "conflicts_held",
+        "lifecycle_pending",
+        "sector_evidence_pending",
+        "row_exclusions",
+        "dataset_activation",
+        "strategy_execution_prohibited",
+    }
+    assert {spec["event"] for spec in specs} <= {
+        "research_subset.conflicts_held",
+        "research_extension.lifecycle_pending",
+        "research_extension.invalid_duplicate_excluded",
+        "research_extension.dataset_activated",
+        "research_extension.strategy_execution_prohibited",
+    }
+    conflict = next(spec for spec in specs if spec["key"] == "conflicts_held")
+    assert conflict["value"]["logical_observation_count"] == 11
+    assert conflict["value"]["select_neither_source"] is True
+    assert conflict["value"]["averaged"] is False
+    assert specs[-1]["status"] == "prohibited"
+    assert specs[-1]["value"]["execution"] is False
+
+
+def test_independent_dataset_registration_preserves_existing_identities(
+    db: Session, tmp_path: Path
+) -> None:
+    initialize_canonical_chain(db, tmp_path / "audit", "Independent extension test")
+    existing_symbols = (
+        ("GP", "ACI", "BRACBANK"),
+        ("BATBC", "SQURPHARMA"),
+        ("IDLC", "LANKABAFIN", "POWERGRID", "RENATA", "BERGERPBL"),
+    )
+    preserved = []
+    for index, symbols in enumerate(existing_symbols):
+        dataset = ResearchDataset(
+            name=f"preserved-{index}",
+            symbols=list(symbols),
+            data_types=["daily_ohlcv", "adjusted_and_unadjusted", "immutable_lineage"],
+            source_evidence_ids=[],
+            source_hash=f"{index + 1:064x}",
+            dataset_hash=f"{index + 11:064x}",
+            timestamp_trust="unknown",
+            raw_file_path="raw",
+            normalized_file_path="normalized",
+            quality_report={},
+            status="research_dataset_active",
+        )
+        db.add(dataset)
+        preserved.append(dataset)
+    approval = GovernanceItemApproval(
+        approval_type="independent_universe_extension",
+        draft_version="independent-test",
+        item_key="dataset_activation",
+        proposed_value={},
+        approval_status="authorized_research_only",
+        decision_hash="f" * 64,
+        audit_event_id="audit-activation",
+    )
+    db.add(approval)
+    db.commit()
+    path = tmp_path / "independent.jsonl"
+    path.write_text("{}\n", encoding="utf-8")
+    dataset_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+    summary = {
+        "active_by_symbol": dict(INDEPENDENT_EXPECTED_TOTAL_COUNTS),
+        "adjusted_execution_by_symbol": dict(INDEPENDENT_EXPECTED_ADJUSTED_COUNTS),
+        "active_rows": sum(INDEPENDENT_EXPECTED_TOTAL_COUNTS.values()),
+        "observed_windows": {
+            symbol: dict(OBSERVED_WINDOW) for symbol in INDEPENDENT_EXTENSION_SYMBOLS
+        },
+    }
+
+    created = create_independent_extension_dataset_record(
+        db,
+        version="independent-fifteen-test",
+        dataset_path=path,
+        dataset_hash=dataset_hash,
+        source_bundle_hash="e" * 64,
+        source_file_hashes=("d" * 64,),
+        candidate_db_path=tmp_path / "candidate.sqlite3",
+        candidate_db_hash="c" * 64,
+        frozen_review_sha256=FROZEN_CANDIDATE_REVIEW_SHA256,
+        authorization_sha256="b" * 64,
+        summary=summary,
+        decisions={"dataset_activation": approval},
+        preserved_datasets=preserved,
+        git_head="a" * 40,
+        audit_chain_id="test-chain",
+        operator_identity="test-operator",
+    )
+
+    assert created.status == "research_dataset_active"
+    assert created.symbols == list(INDEPENDENT_EXTENSION_SYMBOLS)
+    assert created.quality_report["combined_active_universe_count"] == 25
+    assert created.quality_report["strategy_approved"] is False
+    assert [item.dataset_hash for item in preserved] == [f"{index + 11:064x}" for index in range(3)]
