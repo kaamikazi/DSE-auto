@@ -24,6 +24,11 @@ Minimal V1 is the canonical operator path for research status, dataset and strat
 historical-run review, and deterministic reproduction. Legacy operator and milestone runners
 remain only for retained dependencies or historical evidence compatibility.
 
+Minimal V1 also owns the sole local forward paper-validation runner for the frozen
+`absolute_momentum_filter@0.1.0` identity. Genuine forward collection is currently blocked because
+no trustworthy adjusted 25-symbol EOD source and operator-verified market calendar are configured.
+No forward-ingestion contract is certified in the current build.
+
 ## Architecture
 
 - **Backend:** Python 3.12, FastAPI, SQLAlchemy, Alembic, Pydantic
@@ -102,6 +107,7 @@ python -m app.minimal_v1_cli datasets
 python -m app.minimal_v1_cli strategies
 python -m app.minimal_v1_cli runs
 python -m app.minimal_v1_cli reproduce
+python -m app.minimal_v1_cli forward-status
 ```
 
 The reproduction command replays only the immutable archived five-symbol compatibility target.
@@ -109,6 +115,10 @@ It does not promote a strategy or create a campaign, session, signal, order, tra
 See [Minimal V1](docs/MINIMAL_V1.md) and the
 [Legacy Surface Inventory](docs/LEGACY_SURFACE_INVENTORY.md). Do not use legacy CLIs or
 milestone runners for new operator work.
+
+The authorized forward runner creates only dedicated local simulated paper records. See
+[Forward Paper Validation](docs/FORWARD_PAPER_VALIDATION.md) for its start/stop/emergency,
+isolated replay, idempotency, data-trust, and Windows deployment boundaries.
 
 ## Frontend setup
 

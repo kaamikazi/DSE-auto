@@ -7,10 +7,11 @@
 
 ## Purpose and boundary
 
-Minimal V1 is a read-compatible application facade over the existing DSE AutoTrader records,
-files, and trusted backtest engine. It is not a rewrite, schema migration, replacement registry,
-approval workflow, or new strategy. It creates no database records and does not reinterpret
-stored governance decisions.
+Minimal V1 is a compact facade over existing DSE AutoTrader records, files, and the trusted
+backtest engine. Its research commands remain read-compatible. Its separately documented forward
+paper surface may create only the dedicated, local simulated records authorized for
+`absolute_momentum_filter@0.1.0`; it is not a schema migration, replacement registry, approval
+workflow, or new strategy.
 
 The permanent boundary remains:
 
@@ -45,10 +46,19 @@ python -m app.minimal_v1_cli datasets
 python -m app.minimal_v1_cli strategies
 python -m app.minimal_v1_cli runs [run-id]
 python -m app.minimal_v1_cli reproduce [run-id] [--output-dir PATH]
+python -m app.minimal_v1_cli forward-status
+python -m app.minimal_v1_cli forward-start --mode forward
+python -m app.minimal_v1_cli forward-stop
+python -m app.minimal_v1_cli forward-emergency "explicit operator reason"
+python -m app.minimal_v1_cli forward-portfolio
+python -m app.minimal_v1_cli forward-decision
+python -m app.minimal_v1_cli forward-reconcile
 ```
 
 Campaign, qualification, reviewer, provider-certification, approval, and broker commands are
-not reachable through this CLI.
+not reachable through this CLI. See [FORWARD_PAPER_VALIDATION.md](FORWARD_PAPER_VALIDATION.md)
+for the dedicated session, isolated replay, crash recovery, emergency stop, data blockers, and
+Windows Task Scheduler contract.
 
 ## Reproduction contract
 
