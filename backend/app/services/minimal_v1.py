@@ -38,6 +38,8 @@ MOMENTUM_STRATEGY_ID = "cross_sectional_momentum"
 MOMENTUM_STRATEGY_VERSION = "0.1.0"
 DEFENSIVE_STRATEGY_ID = "defensive_low_volatility"
 DEFENSIVE_STRATEGY_VERSION = "0.1.0"
+ABSOLUTE_MOMENTUM_STRATEGY_ID = "absolute_momentum_filter"
+ABSOLUTE_MOMENTUM_STRATEGY_VERSION = "0.1.0"
 EXPECTED_RESEARCH_DECISION = "reject_strategy"
 EXPECTED_RESEARCH_ROLE = "archived_rejected_benchmark"
 DEFAULT_METRIC_TOLERANCE = 1e-8
@@ -246,6 +248,9 @@ class MinimalV1Facade:
         defensive = self._defensive_run()
         if run_id is not None and defensive is not None and run_id == defensive.run_id:
             return defensive
+        absolute = self._absolute_momentum_run()
+        if run_id is not None and absolute is not None and run_id == absolute.run_id:
+            return absolute
         registration, contract, source_path, source, prior_path, prior = self._archived_context()
         canonical_run_id = source_path.parent.name
         if run_id is not None and run_id != canonical_run_id:
@@ -300,6 +305,9 @@ class MinimalV1Facade:
         defensive = self._defensive_run()
         if defensive is not None:
             runs.append(defensive)
+        absolute = self._absolute_momentum_run()
+        if absolute is not None:
+            runs.append(absolute)
         return runs
 
     def _momentum_run(self) -> ResearchRunSummary | None:
@@ -372,6 +380,42 @@ class MinimalV1Facade:
             path = _dataset_file(dataset, self.repository_root)
             if not path.is_file() or sha256_file(path) != dataset.dataset_hash:
                 raise RuntimeError("Defensive active dataset file identity changed")
+        return summary
+
+    def _absolute_momentum_run(self) -> ResearchRunSummary | None:
+        registration = self.db.scalar(
+            select(StrategyRegistration).where(
+                StrategyRegistration.strategy_id == ABSOLUTE_MOMENTUM_STRATEGY_ID,
+                StrategyRegistration.version == ABSOLUTE_MOMENTUM_STRATEGY_VERSION,
+            )
+        )
+        if registration is None:
+            return None
+        evidence = dict(registration.evidence or {})
+        raw_summary = evidence.get("minimal_v1_run_summary")
+        if not isinstance(raw_summary, dict):
+            raise RuntimeError("Absolute-momentum registration lacks a Minimal V1 run summary")
+        summary = ResearchRunSummary.model_validate(raw_summary)
+        result_path = self.repository_root / Path(summary.artifact_locations[0])
+        if not result_path.is_file() or sha256_file(result_path) != evidence.get(
+            "result_file_sha256"
+        ):
+            raise RuntimeError("Absolute-momentum canonical result identity mismatch")
+        identities = cast(
+            list[dict[str, Any]],
+            summary.dataset_identities.get("active_research_datasets", []),
+        )
+        for identity in identities:
+            dataset = self.db.get(ResearchDataset, str(identity["id"]))
+            if (
+                dataset is None
+                or dataset.status != "research_dataset_active"
+                or dataset.dataset_hash != identity["sha256"]
+            ):
+                raise RuntimeError("Absolute-momentum active dataset identity changed")
+            path = _dataset_file(dataset, self.repository_root)
+            if not path.is_file() or sha256_file(path) != dataset.dataset_hash:
+                raise RuntimeError("Absolute-momentum active dataset file identity changed")
         return summary
 
     def _active_contract_datasets(
