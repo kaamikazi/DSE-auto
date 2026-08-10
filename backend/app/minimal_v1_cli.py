@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 from app.core.database import SessionLocal
 from app.core.database_identity import REPOSITORY_ROOT
-from app.services.forward_paper_validation import ForwardPaperValidationRunner
+from app.services.forward_paper_validation import (
+    MANUAL_ATTESTATION,
+    MANUAL_SOURCE_IDENTITY,
+    ForwardPaperValidationRunner,
+)
 from app.services.minimal_v1 import MinimalV1Facade
 
 
@@ -25,6 +29,18 @@ def build_parser() -> argparse.ArgumentParser:
     reproduce.add_argument("run_id", nargs="?")
     reproduce.add_argument("--output-dir", type=Path)
     commands.add_parser("forward-status")
+    forward_ingest = commands.add_parser("forward-ingest")
+    forward_ingest.add_argument("--file", type=Path, required=True)
+    forward_ingest.add_argument("--market-date", type=date.fromisoformat, required=True)
+    forward_ingest.add_argument("--source", choices=(MANUAL_SOURCE_IDENTITY,), required=True)
+    forward_ingest.add_argument(
+        "--session-completed-at", type=datetime.fromisoformat, required=True
+    )
+    forward_ingest.add_argument(
+        "--attestation",
+        required=True,
+        help=f"Required exact acknowledgement: {MANUAL_ATTESTATION}",
+    )
     forward_start = commands.add_parser("forward-start")
     forward_start.add_argument("--mode", choices=("forward", "replay"), default="forward")
     forward_start.add_argument("--start-date", type=datetime.fromisoformat)
@@ -83,6 +99,15 @@ def main() -> int:
             runner = ForwardPaperValidationRunner(db)
             if args.command == "forward-status":
                 payload = runner.status()
+            elif args.command == "forward-ingest":
+                with runner.lock:
+                    payload = runner.ingest_manual_eod(
+                        args.file,
+                        args.market_date,
+                        args.source,
+                        args.attestation,
+                        args.session_completed_at,
+                    )
             elif args.command == "forward-start":
                 with runner.lock:
                     if args.mode == "replay":

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 import os
+import re
+import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
 from datetime import UTC, date, datetime
 from datetime import time as datetime_time
 from decimal import ROUND_DOWN, Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from statistics import mean
 from typing import Any, BinaryIO, cast
@@ -22,6 +27,7 @@ from app.core.config import Settings, assert_paper_only_safety, get_settings
 from app.core.database import database_health_metadata
 from app.core.database_identity import REPOSITORY_ROOT
 from app.models import (
+    AuditEvent,
     Order,
     PaperAccount,
     PaperSession,
@@ -38,7 +44,7 @@ from app.services.absolute_momentum_filter import (
     absolute_momentum_scores,
     deterministic_registration_id,
 )
-from app.services.audit import verify_audit_chain
+from app.services.audit import append_audit, verify_audit_chain
 from app.services.expanded_strategy_validation import (
     EXPANDED_UNIVERSE,
     LoadedUniverse,
@@ -59,10 +65,139 @@ TRUSTED_TIMESTAMPS = {
     TimestampProvenance.EXCHANGE_VERIFIED,
     TimestampProvenance.OPERATOR_ATTESTED,
 }
+MANUAL_SOURCE_IDENTITY = "official_dse_public_eod_archive"
+MANUAL_ATTESTATION = (
+    "I manually obtained this official DSE public EOD/archive file, the stated market session "
+    "had completed, and these observations were visible when I acquired it."
+)
+MANUAL_PARSER_VERSION = "dse_public_eod_manual_v1"
+MANUAL_EVIDENCE_CLASS = "FORWARD_OPERATOR_ATTESTED"
+MANUAL_INGEST_RUN_TYPE = "manual_forward_ingest"
+MANUAL_INGEST_RELATIVE_PATH = Path("data/process-state/minimal_v1_forward")
+MANUAL_FILE_SUFFIXES = {".csv", ".htm", ".html"}
+MAX_MANUAL_FILE_BYTES = 100 * 1024 * 1024
+_DSE_SYMBOL = re.compile(r"^[A-Z0-9().&_-]{1,32}$")
+_DSE_REQUIRED_COLUMNS = {
+    "date": "DATE",
+    "symbol": "TRADING CODE",
+    "open": "OPENP*",
+    "high": "HIGH",
+    "low": "LOW",
+    "close": "CLOSEP*",
+    "volume": "VOLUME",
+}
 
 
 class ForwardValidationError(RuntimeError):
     """A fail-closed forward-validation boundary violation."""
+
+
+class _DSEHTMLTableParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.tables: list[list[list[str]]] = []
+        self._table: list[list[str]] | None = None
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],  # noqa: ARG002
+    ) -> None:
+        lowered = tag.lower()
+        if lowered == "table" and self._table is None:
+            self._table = []
+        elif lowered == "tr" and self._table is not None:
+            self._row = []
+        elif lowered in {"td", "th"} and self._row is not None:
+            self._cell = []
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered = tag.lower()
+        if lowered in {"td", "th"} and self._cell is not None and self._row is not None:
+            self._row.append(" ".join("".join(self._cell).split()))
+            self._cell = None
+        elif lowered == "tr" and self._row is not None and self._table is not None:
+            if self._row:
+                self._table.append(self._row)
+            self._row = None
+        elif lowered == "table" and self._table is not None:
+            self.tables.append(self._table)
+            self._table = None
+
+
+def _canonical_json_bytes(value: Any) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":"), default=str) + "\n").encode()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _write_immutable(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("xb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError:
+        if path.read_bytes() != payload:
+            raise ForwardValidationError(f"Immutable evidence collision: {path}") from None
+
+
+def _table_rows(raw: bytes, suffix: str) -> list[list[str]]:
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ForwardValidationError("Manual DSE file must be UTF-8 text") from exc
+    if suffix == ".csv":
+        rows = [[cell.strip() for cell in row] for row in csv.reader(io.StringIO(text))]
+        if not rows:
+            raise ForwardValidationError("Manual DSE CSV contains no rows")
+        return rows
+    parser = _DSEHTMLTableParser()
+    parser.feed(text)
+    for table in parser.tables:
+        if any(set(_DSE_REQUIRED_COLUMNS.values()).issubset(set(row)) for row in table):
+            return table
+    raise ForwardValidationError("Official DSE EOD table was not found in the HTML file")
+
+
+def _decimal_cell(value: str, *, field: str, symbol: str) -> Decimal:
+    try:
+        parsed = Decimal(value.replace(",", ""))
+    except ArithmeticError as exc:
+        raise ForwardValidationError(f"Invalid {field} for {symbol}") from exc
+    if not parsed.is_finite() or parsed < 0:
+        raise ForwardValidationError(f"Invalid {field} for {symbol}")
+    return parsed
+
+
+def _volume_cell(value: str, *, symbol: str) -> int:
+    try:
+        parsed = int(value.replace(",", ""))
+    except ValueError as exc:
+        raise ForwardValidationError(f"Invalid volume for {symbol}") from exc
+    if parsed < 0:
+        raise ForwardValidationError(f"Invalid volume for {symbol}")
+    return parsed
+
+
+def _decimal_text(value: Decimal) -> str:
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _jsonable(value: Any) -> Any:
@@ -182,10 +317,12 @@ class ForwardPaperValidationRunner:
         *,
         repository_root: Path = REPOSITORY_ROOT,
         settings: Settings | None = None,
+        implementation_boundary: datetime | None = None,
     ) -> None:
         self.db = db
         self.repository_root = repository_root
         self.settings = settings or get_settings()
+        self._implementation_boundary_override = implementation_boundary
 
     @property
     def lock(self) -> RunnerLock:
@@ -317,11 +454,353 @@ class ForwardPaperValidationRunner:
         return {
             "ready": not blockers,
             "provider": provider,
+            "automated_provider_certified": False,
             "required_timestamp_trust": ["exchange_verified", "operator_attested"],
             "required_adjustment_grain": "adjusted",
             "required_lineage": "validated",
             "blockers": blockers,
         }
+
+    def _git(self, *arguments: str) -> str:
+        try:
+            completed = subprocess.run(
+                ["git", *arguments],
+                cwd=self.repository_root,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ForwardValidationError(
+                "Committed implementation boundary is unavailable"
+            ) from exc
+        return completed.stdout.strip()
+
+    def _implementation_boundary(self) -> dict[str, str]:
+        if self._implementation_boundary_override is not None:
+            boundary = self._implementation_boundary_override
+            if boundary.tzinfo is None or boundary.utcoffset() is None:
+                raise ForwardValidationError("Implementation boundary must include a UTC offset")
+            return {
+                "commit": "injected_test_boundary",
+                "committed_at": boundary.astimezone(UTC).isoformat(),
+            }
+        if self._git("status", "--porcelain", "--untracked-files=no"):
+            raise ForwardValidationError(
+                "forward-ingest requires the implementation to be committed with no tracked changes"
+            )
+        head = self._git("rev-parse", "HEAD")
+        required_markers = {
+            "backend/app/minimal_v1_cli.py": "forward-ingest",
+            "backend/app/services/forward_paper_validation.py": "def ingest_manual_eod",
+        }
+        for tracked_path, marker in required_markers.items():
+            committed = self._git("show", f"{head}:{tracked_path}")
+            if marker not in committed:
+                raise ForwardValidationError("forward-ingest implementation is not committed")
+        committed_at = datetime.fromisoformat(self._git("show", "-s", "--format=%cI", head))
+        if committed_at.tzinfo is None or committed_at.utcoffset() is None:
+            raise ForwardValidationError("Git commit timestamp is not timezone-aware")
+        return {"commit": head, "committed_at": committed_at.astimezone(UTC).isoformat()}
+
+    @staticmethod
+    def _parse_manual_rows(raw: bytes, suffix: str, claimed_market_date: date) -> dict[str, Any]:
+        rows = _table_rows(raw, suffix)
+        header_index = next(
+            (
+                index
+                for index, row in enumerate(rows)
+                if set(_DSE_REQUIRED_COLUMNS.values()).issubset(set(row))
+            ),
+            None,
+        )
+        if header_index is None:
+            raise ForwardValidationError("Official DSE EOD columns are missing")
+        header = rows[header_index]
+        if len(header) != len(set(header)):
+            raise ForwardValidationError("Official DSE EOD header contains duplicate columns")
+        positions = {name: header.index(column) for name, column in _DSE_REQUIRED_COLUMNS.items()}
+        parsed: dict[str, dict[str, Any]] = {}
+        unavailable: dict[str, str] = {}
+        symbol_set: set[str] = set()
+        source_row_count = 0
+        for row_number, row in enumerate(rows[header_index + 1 :], header_index + 2):
+            if not any(cell.strip() for cell in row):
+                continue
+            if len(row) < len(header):
+                raise ForwardValidationError(f"Malformed DSE row {row_number}")
+            try:
+                row_date = date.fromisoformat(row[positions["date"]].strip())
+            except ValueError as exc:
+                raise ForwardValidationError(f"Invalid market date on row {row_number}") from exc
+            if row_date != claimed_market_date:
+                raise ForwardValidationError(
+                    f"Claimed-date mismatch on row {row_number}: {row_date.isoformat()}"
+                )
+            symbol = row[positions["symbol"]].strip().upper()
+            if not _DSE_SYMBOL.fullmatch(symbol):
+                raise ForwardValidationError(f"Invalid DSE symbol on row {row_number}")
+            if symbol in symbol_set:
+                raise ForwardValidationError(f"Duplicate DSE symbol for claimed date: {symbol}")
+            symbol_set.add(symbol)
+            source_row_count += 1
+            open_price = _decimal_cell(row[positions["open"]], field="open", symbol=symbol)
+            high = _decimal_cell(row[positions["high"]], field="high", symbol=symbol)
+            low = _decimal_cell(row[positions["low"]], field="low", symbol=symbol)
+            close = _decimal_cell(row[positions["close"]], field="close", symbol=symbol)
+            volume = _volume_cell(row[positions["volume"]], symbol=symbol)
+            if symbol not in EXPANDED_UNIVERSE:
+                continue
+            if min(open_price, high, low, close) == 0:
+                unavailable[symbol] = "nonpositive_source_price_not_synthesized"
+                continue
+            if not low <= min(open_price, close) <= max(open_price, close) <= high:
+                raise ForwardValidationError(f"Malformed OHLC for {symbol}")
+            parsed[symbol] = {
+                "symbol": symbol,
+                "market_date": claimed_market_date.isoformat(),
+                "open": _decimal_text(open_price),
+                "high": _decimal_text(high),
+                "low": _decimal_text(low),
+                "close": _decimal_text(close),
+                "volume": volume,
+            }
+        if source_row_count == 0:
+            raise ForwardValidationError("Official DSE EOD file contains no observations")
+        if not parsed:
+            raise ForwardValidationError("Official DSE EOD file contains no eligible universe rows")
+        missing = sorted(set(EXPANDED_UNIVERSE) - set(parsed))
+        for symbol in missing:
+            unavailable.setdefault(symbol, "source_row_absent")
+        observations = [parsed[symbol] for symbol in EXPANDED_UNIVERSE if symbol in parsed]
+        return {
+            "source_row_count": source_row_count,
+            "source_symbol_set": sorted(symbol_set),
+            "observations": observations,
+            "eligible_symbols": [row["symbol"] for row in observations],
+            "missing_symbols": missing,
+            "unavailable_symbols": unavailable,
+        }
+
+    def _manual_runs(self, session: PaperSession) -> list[PaperSessionRun]:
+        return self._runs(session, MANUAL_INGEST_RUN_TYPE)
+
+    def _ensure_manual_audit(self, event_id: str, metrics: Mapping[str, Any]) -> None:
+        existing = self.db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.event_type == "data_import.activated",
+                AuditEvent.entity_type == "paper_session_run",
+                AuditEvent.entity_id == event_id,
+            )
+        )
+        if existing is not None:
+            return
+        append_audit(
+            self.db,
+            actor="operator",
+            event_type="data_import.activated",
+            entity_type="paper_session_run",
+            entity_id=event_id,
+            new_state={
+                "evidence_class": MANUAL_EVIDENCE_CLASS,
+                "market_date": metrics["market_date"],
+                "raw_sha256": metrics["raw_sha256"],
+                "normalized_sha256": metrics["normalized_sha256"],
+                "row_count": metrics["source_row_count"],
+                "trading_effect": False,
+            },
+            metadata={
+                "source_identity": metrics["source_identity"],
+                "operator_attestation": metrics["operator_attestation"],
+                "receipt_timestamp": metrics["receipt_timestamp"],
+                "timestamp_provenance": "operator_attested",
+                "exchange_verified": False,
+                "automated_provider_certified": False,
+            },
+        )
+
+    def ingest_manual_eod(
+        self,
+        input_path: Path,
+        claimed_market_date: date,
+        source_identity: str,
+        operator_attestation: str,
+        session_completed_at: datetime,
+        *,
+        receipt_time: datetime | None = None,
+    ) -> dict[str, Any]:
+        assert_paper_only_safety(self.settings)
+        if source_identity != MANUAL_SOURCE_IDENTITY:
+            raise ForwardValidationError(
+                f"Manual source identity must be exactly {MANUAL_SOURCE_IDENTITY}"
+            )
+        if operator_attestation != MANUAL_ATTESTATION:
+            raise ForwardValidationError(f"Operator must attest exactly: {MANUAL_ATTESTATION}")
+        path_text = str(input_path)
+        if (
+            "://" in path_text
+            or re.match(r"^(?:https?|ftp):[\\/]", path_text, re.IGNORECASE)
+            or path_text.startswith(("\\\\", "//"))
+        ):
+            raise ForwardValidationError("forward-ingest accepts only a local file path")
+        if input_path.is_symlink():
+            raise ForwardValidationError("forward-ingest refuses symbolic-link input")
+        try:
+            resolved = input_path.resolve(strict=True)
+        except OSError as exc:
+            raise ForwardValidationError("Manual DSE input file does not exist") from exc
+        if not resolved.is_file():
+            raise ForwardValidationError("Manual DSE input must be a regular local file")
+        suffix = resolved.suffix.lower()
+        if suffix not in MANUAL_FILE_SUFFIXES:
+            raise ForwardValidationError("Manual DSE input must be CSV or HTML")
+        size = resolved.stat().st_size
+        if size <= 0 or size > MAX_MANUAL_FILE_BYTES:
+            raise ForwardValidationError("Manual DSE input file size is invalid")
+        raw = resolved.read_bytes()
+        raw_sha256 = hashlib.sha256(raw).hexdigest()
+        receipt = receipt_time or datetime.now(UTC)
+        if receipt.tzinfo is None or receipt.utcoffset() is None:
+            raise ForwardValidationError("Local receipt timestamp must include a UTC offset")
+        receipt = receipt.astimezone(UTC)
+        startup, _ = self.verify_startup()
+        session = self._session()
+        if session is None:
+            raise ForwardValidationError(
+                "Existing authorized Minimal V1 forward session is required"
+            )
+        identity = cast(dict[str, Any], startup["strategy"])
+        self.ensure_session(identity, starting_cash=DEFAULT_STARTING_CASH)
+        same_hash = next(
+            (
+                run
+                for run in self._manual_runs(session)
+                if run.metrics.get("raw_sha256") == raw_sha256
+            ),
+            None,
+        )
+        if same_hash is not None:
+            if same_hash.metrics.get("market_date") != claimed_market_date.isoformat():
+                raise ForwardValidationError("Raw snapshot was previously bound to another date")
+            self._load_manual_observation(same_hash, now=receipt)
+            self._ensure_manual_audit(str(same_hash.metrics["event_id"]), same_hash.metrics)
+            return cast(dict[str, Any], same_hash.metrics)
+        boundary = self._implementation_boundary()
+        boundary_time = datetime.fromisoformat(boundary["committed_at"])
+        if session_completed_at.tzinfo is None or session_completed_at.utcoffset() is None:
+            raise ForwardValidationError("Attested session completion must include a UTC offset")
+        completed_dhaka = session_completed_at.astimezone(ZoneInfo("Asia/Dhaka"))
+        if completed_dhaka.date() != claimed_market_date:
+            raise ForwardValidationError("Attested session completion does not match market date")
+        if session_completed_at <= boundary_time:
+            raise ForwardValidationError(
+                "Forward evidence cannot predate the committed implementation boundary"
+            )
+        if session_completed_at > receipt:
+            raise ForwardValidationError(
+                "Attested session completion cannot be after local receipt"
+            )
+        parsed = self._parse_manual_rows(raw, suffix, claimed_market_date)
+        normalized = {
+            "schema": "minimal_v1_manual_eod_v1",
+            "parser_version": MANUAL_PARSER_VERSION,
+            "evidence_class": MANUAL_EVIDENCE_CLASS,
+            "source_identity": source_identity,
+            "market_date": claimed_market_date.isoformat(),
+            "adjustment_grain": "raw_unadjusted",
+            "observations": parsed["observations"],
+        }
+        normalized_bytes = _canonical_json_bytes(normalized)
+        normalized_sha256 = hashlib.sha256(normalized_bytes).hexdigest()
+        prior_versions = [
+            run
+            for run in self._manual_runs(session)
+            if run.metrics.get("market_date") == claimed_market_date.isoformat()
+        ]
+        version = len(prior_versions) + 1
+        supersedes = str(prior_versions[-1].metrics["event_id"]) if prior_versions else None
+        event_id = _sha256(
+            {
+                "manual_forward_ingest": session.id,
+                "market_date": claimed_market_date,
+                "source_identity": source_identity,
+                "raw_sha256": raw_sha256,
+                "normalized_sha256": normalized_sha256,
+            }
+        )
+        evidence_dir = (
+            self.repository_root
+            / MANUAL_INGEST_RELATIVE_PATH
+            / session.id
+            / "manual_eod"
+            / claimed_market_date.isoformat()
+            / raw_sha256
+        )
+        raw_path = evidence_dir / f"raw_snapshot{suffix}"
+        normalized_path = evidence_dir / "normalized.json"
+        evidence_path = evidence_dir / "evidence.json"
+        relative_raw = raw_path.relative_to(self.repository_root).as_posix()
+        relative_normalized = normalized_path.relative_to(self.repository_root).as_posix()
+        relative_evidence = evidence_path.relative_to(self.repository_root).as_posix()
+        availability = max(session_completed_at.astimezone(UTC), receipt)
+        evidence = {
+            "schema": "minimal_v1_manual_eod_evidence_v1",
+            "event_id": event_id,
+            "evidence_class": MANUAL_EVIDENCE_CLASS,
+            "market_date": claimed_market_date.isoformat(),
+            "version": version,
+            "supersedes_event_id": supersedes,
+            "source_identity": source_identity,
+            "original_filename": resolved.name,
+            "raw_sha256": raw_sha256,
+            "raw_byte_count": len(raw),
+            "raw_snapshot_relative_path": relative_raw,
+            "normalized_sha256": normalized_sha256,
+            "normalized_relative_path": relative_normalized,
+            "parser_version": MANUAL_PARSER_VERSION,
+            "operator_attestation": operator_attestation,
+            "session_completed_at": session_completed_at.astimezone(UTC).isoformat(),
+            "receipt_timestamp": receipt.isoformat(),
+            "availability_timestamp": availability.isoformat(),
+            "timestamp_semantics": "local receipt; not DSE publication time",
+            "timestamp_provenance": "operator_attested",
+            "adjustment_grain": "raw_unadjusted",
+            "analytical_adjustment_status": "unresolved",
+            "source_row_count": parsed["source_row_count"],
+            "source_symbol_set": parsed["source_symbol_set"],
+            "eligible_symbols": parsed["eligible_symbols"],
+            "missing_symbols": parsed["missing_symbols"],
+            "unavailable_symbols": parsed["unavailable_symbols"],
+            "implementation_boundary": boundary,
+            "automated_provider_certified": False,
+            "trading_effect": False,
+        }
+        evidence_bytes = _canonical_json_bytes(evidence)
+        _write_immutable(raw_path, raw)
+        _write_immutable(normalized_path, normalized_bytes)
+        _write_immutable(evidence_path, evidence_bytes)
+        metrics = {
+            **evidence,
+            "evidence_relative_path": relative_evidence,
+            "status": "accepted" if not parsed["missing_symbols"] else "accepted_with_missing",
+            "runner_visible": True,
+            "decision_eligible": False,
+            "decision_blockers": [
+                "raw_unadjusted_forward_observation",
+                "analytical_adjustment_view_unresolved",
+                "period_end_calendar_evidence_unresolved",
+            ],
+        }
+        run = self._record(
+            session,
+            MANUAL_INGEST_RUN_TYPE,
+            event_id,
+            status="completed",
+            metrics=metrics,
+        )
+        self._ensure_manual_audit(event_id, run.metrics)
+        return cast(dict[str, Any], run.metrics)
 
     def _session(self) -> PaperSession | None:
         return self.db.scalar(select(PaperSession).where(PaperSession.name == SESSION_NAME))
@@ -442,6 +921,206 @@ class ForwardPaperValidationRunner:
         self.db.refresh(run)
         self._ensure_ledger_line(session, run)
         return run
+
+    def _resolved_evidence_path(self, relative_path: object) -> Path:
+        root = self.repository_root.resolve()
+        target = (root / str(relative_path)).resolve()
+        if not target.is_relative_to(root):
+            raise ForwardValidationError("Persisted manual evidence path escapes repository root")
+        return target
+
+    def _load_manual_observation(
+        self,
+        run: PaperSessionRun,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        metrics = run.metrics
+        if metrics.get("evidence_class") != MANUAL_EVIDENCE_CLASS:
+            raise ForwardValidationError("Manual observation evidence class is invalid")
+        if metrics.get("adjustment_grain") != "raw_unadjusted":
+            raise ForwardValidationError("Manual DSE observations must remain raw/unadjusted")
+        raw_path = self._resolved_evidence_path(metrics.get("raw_snapshot_relative_path"))
+        normalized_path = self._resolved_evidence_path(metrics.get("normalized_relative_path"))
+        evidence_path = self._resolved_evidence_path(metrics.get("evidence_relative_path"))
+        for path in (raw_path, normalized_path, evidence_path):
+            if not path.is_file():
+                raise ForwardValidationError(f"Manual evidence file is missing: {path.name}")
+        if _file_sha256(raw_path) != metrics.get("raw_sha256"):
+            raise ForwardValidationError("Immutable raw snapshot hash mismatch")
+        normalized_bytes = normalized_path.read_bytes()
+        if hashlib.sha256(normalized_bytes).hexdigest() != metrics.get("normalized_sha256"):
+            raise ForwardValidationError("Normalized manual payload hash mismatch")
+        try:
+            normalized = cast(dict[str, Any], json.loads(normalized_bytes))
+            evidence = cast(dict[str, Any], json.loads(evidence_path.read_bytes()))
+        except json.JSONDecodeError as exc:
+            raise ForwardValidationError("Manual evidence JSON is malformed") from exc
+        for key in (
+            "event_id",
+            "market_date",
+            "raw_sha256",
+            "normalized_sha256",
+            "availability_timestamp",
+        ):
+            if evidence.get(key) != metrics.get(key):
+                raise ForwardValidationError(f"Manual evidence identity mismatch: {key}")
+        if normalized.get("adjustment_grain") != "raw_unadjusted":
+            raise ForwardValidationError("Normalized manual payload mislabeled adjustment grain")
+        availability = datetime.fromisoformat(str(metrics["availability_timestamp"]))
+        current = now or datetime.now(UTC)
+        if current.tzinfo is None or current.utcoffset() is None:
+            raise ForwardValidationError("Manual evidence comparison time must include an offset")
+        if current < availability:
+            raise ForwardValidationError("Manual observation is unavailable before local receipt")
+        session_completed = datetime.fromisoformat(str(metrics["session_completed_at"]))
+        receipt = datetime.fromisoformat(str(metrics["receipt_timestamp"]))
+        market_date = date.fromisoformat(str(metrics["market_date"]))
+        observations: dict[str, HistoricalBar] = {}
+        for row in cast(list[dict[str, Any]], normalized.get("observations", [])):
+            symbol = str(row["symbol"])
+            if symbol in observations or symbol not in EXPANDED_UNIVERSE:
+                raise ForwardValidationError("Normalized manual symbol mapping is invalid")
+            if date.fromisoformat(str(row["market_date"])) != market_date:
+                raise ForwardValidationError("Normalized manual market date mismatch")
+            observations[symbol] = HistoricalBar(
+                timestamp=session_completed,
+                symbol=symbol,
+                open=Decimal(str(row["open"])),
+                high=Decimal(str(row["high"])),
+                low=Decimal(str(row["low"])),
+                close=Decimal(str(row["close"])),
+                volume=int(row["volume"]),
+                source=(
+                    f"manual_dse:{metrics['raw_sha256']}:{metrics['normalized_sha256']}:"
+                    f"{metrics['availability_timestamp']}"
+                ),
+                received_at=receipt,
+                timestamp_provenance=TimestampProvenance.OPERATOR_ATTESTED,
+                quality_flags=[
+                    "forward_operator_attested",
+                    "lineage_validated",
+                    "raw_unadjusted",
+                    "adjustment_view_unresolved",
+                ],
+            )
+        expected = set(cast(list[str], metrics.get("eligible_symbols", [])))
+        if set(observations) != expected:
+            raise ForwardValidationError("Normalized manual symbol inventory mismatch")
+        return {
+            "market_date": market_date,
+            "availability_timestamp": availability,
+            "observations": observations,
+            "missing_symbols": cast(list[str], metrics.get("missing_symbols", [])),
+            "raw_sha256": metrics["raw_sha256"],
+            "normalized_sha256": metrics["normalized_sha256"],
+            "version": metrics["version"],
+            "event_id": metrics["event_id"],
+            "evidence_class": MANUAL_EVIDENCE_CLASS,
+            "adjustment_grain": "raw_unadjusted",
+            "analytical_adjustment_status": "unresolved",
+        }
+
+    def _consume_manual_ingests(
+        self,
+        session: PaperSession,
+        *,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        consumed: list[dict[str, Any]] = []
+        for ingest in self._manual_runs(session):
+            loaded = self._load_manual_observation(ingest, now=now)
+            event_id = _sha256(
+                {
+                    "manual_observation_consumed": session.id,
+                    "ingest_event_id": loaded["event_id"],
+                }
+            )
+            existing = self._run_by_event(session, event_id)
+            if existing is not None:
+                continue
+            missing = cast(list[str], loaded["missing_symbols"])
+            blockers = [
+                "raw_unadjusted_forward_observation",
+                "analytical_adjustment_view_unresolved",
+                "period_end_calendar_evidence_unresolved",
+            ]
+            if missing:
+                blockers.insert(0, "required_symbols_missing_without_substitution")
+            metrics = {
+                "mode": "forward",
+                "evidence_class": MANUAL_EVIDENCE_CLASS,
+                "manual_ingest_event_id": loaded["event_id"],
+                "market_date": loaded["market_date"].isoformat(),
+                "availability_timestamp": loaded["availability_timestamp"].isoformat(),
+                "raw_sha256": loaded["raw_sha256"],
+                "normalized_sha256": loaded["normalized_sha256"],
+                "version": loaded["version"],
+                "observed_symbols": sorted(cast(dict[str, HistoricalBar], loaded["observations"])),
+                "missing_symbols": missing,
+                "adjustment_grain": "raw_unadjusted",
+                "analytical_adjustment_status": "unresolved",
+                "decision_eligible": False,
+                "decision_blockers": blockers,
+                "orders_created": 0,
+                "fills_created": 0,
+                "transactions_created": 0,
+            }
+            observation = self._record(
+                session,
+                "observation",
+                event_id,
+                status="degraded" if missing else "completed",
+                reason="; ".join(blockers),
+                metrics=metrics,
+            )
+            self._record(
+                session,
+                "data_outage",
+                _sha256({"manual_observation_blocked": event_id, "blockers": blockers}),
+                status="degraded",
+                reason="; ".join(blockers),
+                metrics={**metrics, "trade_effect": False},
+            )
+            consumed.append(cast(dict[str, Any], observation.metrics))
+        return consumed
+
+    def manual_ingestion_status(self, session: PaperSession | None = None) -> dict[str, Any]:
+        current_session = session or self._session()
+        if current_session is None:
+            return {
+                "boundary": "OPERATOR_ATTESTED_MANUAL",
+                "accepted_versions": 0,
+                "latest_market_date": None,
+                "decision_eligible": False,
+                "blockers": ["existing_authorized_forward_session_required"],
+            }
+        ingests = self._manual_runs(current_session)
+        if not ingests:
+            return {
+                "boundary": "OPERATOR_ATTESTED_MANUAL",
+                "accepted_versions": 0,
+                "latest_market_date": None,
+                "decision_eligible": False,
+                "blockers": ["operator_attested_manual_eod_not_ingested"],
+            }
+        latest = ingests[-1].metrics
+        blockers = list(cast(list[str], latest.get("decision_blockers", [])))
+        if latest.get("missing_symbols"):
+            blockers.insert(0, "required_symbols_missing_without_substitution")
+        return {
+            "boundary": "OPERATOR_ATTESTED_MANUAL",
+            "automated_provider_certified": False,
+            "accepted_versions": len(ingests),
+            "latest_market_date": latest.get("market_date"),
+            "latest_version": latest.get("version"),
+            "latest_raw_sha256": latest.get("raw_sha256"),
+            "latest_missing_symbols": latest.get("missing_symbols", []),
+            "latest_availability_timestamp": latest.get("availability_timestamp"),
+            "adjustment_grain": "raw_unadjusted",
+            "decision_eligible": False,
+            "blockers": list(dict.fromkeys(blockers)),
+        }
 
     def _latest_control(self, session: PaperSession) -> PaperSessionRun | None:
         controls = {"runner_start", "operator_stop", "emergency_halt", "emergency_resume"}
@@ -1217,12 +1896,42 @@ class ForwardPaperValidationRunner:
                 self.emergency_halt(f"global risk state: {risk.state}")
                 return
             readiness = self.provider_readiness()
+            manual = self.manual_ingestion_status(session)
+            try:
+                self._consume_manual_ingests(session)
+            except ForwardValidationError as exc:
+                integrity_event = _sha256(
+                    {
+                        "manual_evidence_integrity_failure": session.id,
+                        "day": date.today(),
+                        "error": str(exc),
+                    }
+                )
+                self._record(
+                    session,
+                    "data_outage",
+                    integrity_event,
+                    status="failed",
+                    reason=str(exc),
+                    metrics={
+                        "mode": "forward",
+                        "boundary": "OPERATOR_ATTESTED_MANUAL",
+                        "trade_effect": False,
+                    },
+                )
+                self._alert("manual_forward_evidence_blocked", str(exc), session=session)
+                return
             if not readiness["ready"]:
+                blockers = (
+                    cast(list[str], manual["blockers"])
+                    if manual["accepted_versions"]
+                    else cast(list[str], readiness["blockers"])
+                )
                 event_id = _sha256(
                     {
                         "provider_blocked": session.id,
                         "day": date.today(),
-                        "blockers": readiness["blockers"],
+                        "blockers": blockers,
                     }
                 )
                 already_recorded = self._run_by_event(session, event_id) is not None
@@ -1231,13 +1940,18 @@ class ForwardPaperValidationRunner:
                     "data_outage",
                     event_id,
                     status="degraded",
-                    reason="; ".join(readiness["blockers"]),
-                    metrics={"mode": "forward", "readiness": readiness, "trade_effect": False},
+                    reason="; ".join(blockers),
+                    metrics={
+                        "mode": "forward",
+                        "readiness": readiness,
+                        "manual_ingestion": manual,
+                        "trade_effect": False,
+                    },
                 )
                 if not already_recorded:
                     self._alert(
                         "forward_data_blocked",
-                        "; ".join(readiness["blockers"]),
+                        "; ".join(blockers),
                         session=session,
                     )
             session.heartbeat_at = datetime.now(UTC)
@@ -1271,12 +1985,14 @@ class ForwardPaperValidationRunner:
     def status(self) -> dict[str, Any]:
         session = self._session()
         provider = self.provider_readiness()
+        manual = self.manual_ingestion_status(session)
         if session is None:
             return {
                 "runtime_state": "STOPPED",
                 "strategy": STRATEGY_IDENTITY,
                 "session": None,
                 "provider_readiness": provider,
+                "manual_ingestion": manual,
                 "qualification": "0/60",
             }
         runs = self._runs(session)
@@ -1315,6 +2031,7 @@ class ForwardPaperValidationRunner:
             "heartbeat_at": session.heartbeat_at.isoformat() if session.heartbeat_at else None,
             "emergency_halt": self._emergency_active(session),
             "provider_readiness": provider,
+            "manual_ingestion": manual,
             "latest_decision": self.latest_decision(),
             "latest_replay_metrics": replay[-1].metrics if replay else None,
             "latest_forward_metrics": forward[-1].metrics if forward else None,
@@ -1328,6 +2045,9 @@ __all__ = [
     "DEFAULT_STARTING_CASH",
     "ForwardPaperValidationRunner",
     "ForwardValidationError",
+    "MANUAL_ATTESTATION",
+    "MANUAL_EVIDENCE_CLASS",
+    "MANUAL_SOURCE_IDENTITY",
     "RunnerLock",
     "SESSION_NAME",
     "quarter_end_sessions",

@@ -386,6 +386,7 @@ def test_cli_and_complexity_budget_have_no_hidden_surface() -> None:
         "runs",
         "reproduce",
         "forward-status",
+        "forward-ingest",
         "forward-start",
         "forward-stop",
         "forward-emergency",
