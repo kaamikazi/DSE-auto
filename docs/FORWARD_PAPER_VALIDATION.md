@@ -57,10 +57,10 @@ and broker access are absent from this path.
 
 The command captures its own UTC receipt timestamp and records the separately attested session
 completion time. Availability is the later of those values. It refuses a session completed before
-the current committed implementation boundary, so pre-existing August/replay files cannot be
-relabelled as forward evidence. The command also refuses tracked working-tree changes; the first
-accepted observation must therefore come from a session completed after the final implementation
-commit.
+the established forward-ingestion boundary, commit `e64b0a8f2bc211eaed46c2f1bd739e01970363bf`
+at `2026-08-10T12:16:02+06:00`, so pre-existing August/replay files cannot be relabelled as forward
+evidence. Parser-only corrections do not move that boundary. The command still refuses tracked
+working-tree changes, and every successful ingestion captures a new application receipt timestamp.
 
 Raw bytes are retained under
 `data/process-state/minimal_v1_forward/<session-id>/manual_eod/<date>/<raw-sha256>/`. The raw file,

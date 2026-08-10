@@ -22,6 +22,7 @@ from app.models import (
     Order,
     PaperAccount,
     PaperSession,
+    PaperSessionRun,
     RiskState,
     StrategyRegistration,
     Transaction,
@@ -31,6 +32,8 @@ from app.services.absolute_momentum_filter import deterministic_registration_id
 from app.services.expanded_strategy_validation import EXPANDED_UNIVERSE, LoadedUniverse
 from app.services.forward_paper_validation import (
     ACCOUNT_LABEL,
+    FORWARD_INGEST_BOUNDARY_AT,
+    FORWARD_INGEST_BOUNDARY_COMMIT,
     MANUAL_ATTESTATION,
     MANUAL_EVIDENCE_CLASS,
     MANUAL_SOURCE_IDENTITY,
@@ -193,18 +196,31 @@ def _manual_csv(
     return output.getvalue().encode()
 
 
-def _manual_html(raw_csv: bytes) -> bytes:
+def _manual_html_table(
+    raw_csv: bytes, *, include_data: bool = True, aria_header: bool = False
+) -> str:
     rows = list(csv.reader(io.StringIO(raw_csv.decode())))
     header, data = rows[0], rows[1:]
-    parts = ["<html><body><table><thead><tr>"]
-    parts.extend(f"<th>{cell}</th>" for cell in header)
+    parts = ["<table><thead><tr>"]
+    parts.extend(
+        f'<th aria-label="{cell}"></th>' if aria_header else f"<th>{cell}</th>" for cell in header
+    )
     parts.append("</tr></thead><tbody>")
-    for row in data:
+    for row in data if include_data else []:
         parts.append("<tr>")
         parts.extend(f"<td>{cell}</td>" for cell in row)
         parts.append("</tr>")
-    parts.append("</tbody></table></body></html>")
+    parts.append("</tbody></table>")
+    return "".join(parts)
+
+
+def _manual_html(raw_csv: bytes) -> bytes:
+    parts = ["<html><body>", _manual_html_table(raw_csv), "</body></html>"]
     return "".join(parts).encode()
+
+
+def _multi_table_html(*tables: str) -> bytes:
+    return ("<html><body>" + "".join(tables) + "</body></html>").encode()
 
 
 def _manual_runner(
@@ -548,6 +564,125 @@ def test_manual_ingest_preserves_hashes_and_normalizes_all_25_symbols(
     )
     assert len(audits) == 1
     assert audits[0].event_metadata["operator_attestation"] == MANUAL_ATTESTATION
+
+
+@pytest.mark.parametrize("header_only_first", [True, False])
+def test_manual_ingest_selects_only_populated_matching_html_table(
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    header_only_first: bool,
+) -> None:
+    runner = _manual_runner(db, tmp_path, monkeypatch)
+    csv_bytes = _manual_csv(date(2026, 8, 10))
+    empty = _manual_html_table(csv_bytes, include_data=False)
+    populated = _manual_html_table(csv_bytes, aria_header=True)
+    matching = [empty, populated] if header_only_first else [populated, empty]
+    unrelated = "<table><tr><th>NOT DSE</th></tr><tr><td>ignored</td></tr></table>"
+    raw = _multi_table_html(unrelated, *matching, unrelated)
+    source = tmp_path / "saved-dse-page.html"
+    source.write_bytes(raw)
+
+    first = _ingest(runner, source)
+    second = _ingest(runner, source)
+
+    assert first["event_id"] == second["event_id"]
+    assert first["parser_version"] == "dse_public_eod_manual_v2"
+    assert first["source_row_count"] == len(EXPANDED_UNIVERSE)
+    assert first["raw_sha256"] == hashlib.sha256(raw).hexdigest()
+    assert source.read_bytes() == raw
+    assert (tmp_path / first["raw_snapshot_relative_path"]).read_bytes() == raw
+    session = runner._session()
+    assert session is not None
+    assert len(runner._manual_runs(session)) == 1
+
+
+def test_manual_ingest_rejects_empty_and_ambiguous_matching_html_tables_without_effects(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _manual_runner(db, tmp_path, monkeypatch)
+    csv_bytes = _manual_csv(date(2026, 8, 10))
+    empty = _manual_html_table(csv_bytes, include_data=False)
+    counts_before = {
+        model: int(db.scalar(select(func.count()).select_from(model)) or 0)
+        for model in (PaperSessionRun, AuditEvent, Order, Transaction)
+    }
+    empty_source = tmp_path / "empty-tables.html"
+    empty_source.write_bytes(_multi_table_html(empty, empty))
+    with pytest.raises(ForwardValidationError, match="contains no observations"):
+        _ingest(runner, empty_source)
+
+    changed = _manual_csv(date(2026, 8, 10), corrected_close=Decimal("100.5"))
+    ambiguous_source = tmp_path / "ambiguous-tables.html"
+    ambiguous_source.write_bytes(
+        _multi_table_html(_manual_html_table(csv_bytes), _manual_html_table(changed))
+    )
+    with pytest.raises(ForwardValidationError, match="ambiguous populated matching tables"):
+        _ingest(runner, ambiguous_source)
+
+    assert {
+        model: int(db.scalar(select(func.count()).select_from(model)) or 0)
+        for model in counts_before
+    } == counts_before
+    assert not (tmp_path / "data/process-state/minimal_v1_forward").exists()
+
+
+def test_manual_html_keeps_date_and_duplicate_validation(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = _manual_runner(db, tmp_path, monkeypatch)
+    mismatch = tmp_path / "mismatch.html"
+    mismatch.write_bytes(_manual_html(_manual_csv(date(2026, 8, 10))))
+    with pytest.raises(ForwardValidationError, match="Claimed-date mismatch"):
+        runner.ingest_manual_eod(
+            mismatch,
+            date(2026, 8, 11),
+            MANUAL_SOURCE_IDENTITY,
+            MANUAL_ATTESTATION,
+            datetime(2026, 8, 11, 14, 10, tzinfo=ZoneInfo("Asia/Dhaka")),
+            receipt_time=datetime(2026, 8, 11, 8, 15, tzinfo=UTC),
+        )
+
+    duplicate = tmp_path / "duplicate.html"
+    duplicate.write_bytes(_manual_html(_manual_csv(date(2026, 8, 10), duplicate="GP")))
+    with pytest.raises(ForwardValidationError, match="Duplicate DSE symbol"):
+        _ingest(runner, duplicate)
+
+
+def test_committed_forward_boundary_remains_pinned_after_parser_fix(
+    db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = ForwardPaperValidationRunner(db, repository_root=tmp_path, settings=_settings())
+    later_head = "f" * 40
+
+    def fake_git(*arguments: str) -> str:
+        if arguments == ("status", "--porcelain", "--untracked-files=no"):
+            return ""
+        if arguments == ("rev-parse", "HEAD"):
+            return later_head
+        if arguments[:1] == ("show",) and arguments[1].startswith(f"{later_head}:"):
+            return "forward-ingest\ndef ingest_manual_eod"
+        if arguments == (
+            "merge-base",
+            "--is-ancestor",
+            FORWARD_INGEST_BOUNDARY_COMMIT,
+            later_head,
+        ):
+            return ""
+        if arguments == (
+            "show",
+            "-s",
+            "--format=%cI",
+            FORWARD_INGEST_BOUNDARY_COMMIT,
+        ):
+            return FORWARD_INGEST_BOUNDARY_AT.isoformat()
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(runner, "_git", fake_git)
+    assert runner._implementation_boundary() == {
+        "commit": FORWARD_INGEST_BOUNDARY_COMMIT,
+        "committed_at": "2026-08-10T06:16:02+00:00",
+    }
 
 
 def test_manual_ingest_rejects_duplicate_invalid_ohlc_and_claimed_date_mismatch(

@@ -70,12 +70,14 @@ MANUAL_ATTESTATION = (
     "I manually obtained this official DSE public EOD/archive file, the stated market session "
     "had completed, and these observations were visible when I acquired it."
 )
-MANUAL_PARSER_VERSION = "dse_public_eod_manual_v1"
+MANUAL_PARSER_VERSION = "dse_public_eod_manual_v2"
 MANUAL_EVIDENCE_CLASS = "FORWARD_OPERATOR_ATTESTED"
 MANUAL_INGEST_RUN_TYPE = "manual_forward_ingest"
 MANUAL_INGEST_RELATIVE_PATH = Path("data/process-state/minimal_v1_forward")
 MANUAL_FILE_SUFFIXES = {".csv", ".htm", ".html"}
 MAX_MANUAL_FILE_BYTES = 100 * 1024 * 1024
+FORWARD_INGEST_BOUNDARY_COMMIT = "e64b0a8f2bc211eaed46c2f1bd739e01970363bf"
+FORWARD_INGEST_BOUNDARY_AT = datetime.fromisoformat("2026-08-10T12:16:02+06:00")
 _DSE_SYMBOL = re.compile(r"^[A-Z0-9().&_-]{1,32}$")
 _DSE_REQUIRED_COLUMNS = {
     "date": "DATE",
@@ -99,11 +101,12 @@ class _DSEHTMLTableParser(HTMLParser):
         self._table: list[list[str]] | None = None
         self._row: list[str] | None = None
         self._cell: list[str] | None = None
+        self._cell_fallback: str | None = None
 
     def handle_starttag(
         self,
         tag: str,
-        attrs: list[tuple[str, str | None]],  # noqa: ARG002
+        attrs: list[tuple[str, str | None]],
     ) -> None:
         lowered = tag.lower()
         if lowered == "table" and self._table is None:
@@ -112,6 +115,7 @@ class _DSEHTMLTableParser(HTMLParser):
             self._row = []
         elif lowered in {"td", "th"} and self._row is not None:
             self._cell = []
+            self._cell_fallback = dict(attrs).get("aria-label") if lowered == "th" else None
 
     def handle_data(self, data: str) -> None:
         if self._cell is not None:
@@ -120,8 +124,11 @@ class _DSEHTMLTableParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         lowered = tag.lower()
         if lowered in {"td", "th"} and self._cell is not None and self._row is not None:
-            self._row.append(" ".join("".join(self._cell).split()))
+            content = " ".join("".join(self._cell).split())
+            fallback = " ".join((self._cell_fallback or "").split())
+            self._row.append(content or fallback)
             self._cell = None
+            self._cell_fallback = None
         elif lowered == "tr" and self._row is not None and self._table is not None:
             if self._row:
                 self._table.append(self._row)
@@ -155,7 +162,7 @@ def _write_immutable(path: Path, payload: bytes) -> None:
             raise ForwardValidationError(f"Immutable evidence collision: {path}") from None
 
 
-def _table_rows(raw: bytes, suffix: str) -> list[list[str]]:
+def _candidate_tables(raw: bytes, suffix: str) -> list[list[list[str]]]:
     try:
         text = raw.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
@@ -164,13 +171,17 @@ def _table_rows(raw: bytes, suffix: str) -> list[list[str]]:
         rows = [[cell.strip() for cell in row] for row in csv.reader(io.StringIO(text))]
         if not rows:
             raise ForwardValidationError("Manual DSE CSV contains no rows")
-        return rows
+        return [rows]
     parser = _DSEHTMLTableParser()
     parser.feed(text)
-    for table in parser.tables:
-        if any(set(_DSE_REQUIRED_COLUMNS.values()).issubset(set(row)) for row in table):
-            return table
-    raise ForwardValidationError("Official DSE EOD table was not found in the HTML file")
+    candidates = [
+        table
+        for table in parser.tables
+        if any(set(_DSE_REQUIRED_COLUMNS.values()).issubset(set(row)) for row in table)
+    ]
+    if not candidates:
+        raise ForwardValidationError("Official DSE EOD table was not found in the HTML file")
+    return candidates
 
 
 def _decimal_cell(value: str, *, field: str, symbol: str) -> Decimal:
@@ -499,14 +510,23 @@ class ForwardPaperValidationRunner:
             committed = self._git("show", f"{head}:{tracked_path}")
             if marker not in committed:
                 raise ForwardValidationError("forward-ingest implementation is not committed")
-        committed_at = datetime.fromisoformat(self._git("show", "-s", "--format=%cI", head))
+        self._git("merge-base", "--is-ancestor", FORWARD_INGEST_BOUNDARY_COMMIT, head)
+        committed_at = datetime.fromisoformat(
+            self._git("show", "-s", "--format=%cI", FORWARD_INGEST_BOUNDARY_COMMIT)
+        )
         if committed_at.tzinfo is None or committed_at.utcoffset() is None:
             raise ForwardValidationError("Git commit timestamp is not timezone-aware")
-        return {"commit": head, "committed_at": committed_at.astimezone(UTC).isoformat()}
+        if committed_at != FORWARD_INGEST_BOUNDARY_AT:
+            raise ForwardValidationError("Committed implementation boundary identity changed")
+        return {
+            "commit": FORWARD_INGEST_BOUNDARY_COMMIT,
+            "committed_at": committed_at.astimezone(UTC).isoformat(),
+        }
 
     @staticmethod
-    def _parse_manual_rows(raw: bytes, suffix: str, claimed_market_date: date) -> dict[str, Any]:
-        rows = _table_rows(raw, suffix)
+    def _parse_manual_table(
+        rows: list[list[str]], claimed_market_date: date
+    ) -> dict[str, Any] | None:
         header_index = next(
             (
                 index
@@ -567,7 +587,7 @@ class ForwardPaperValidationRunner:
                 "volume": volume,
             }
         if source_row_count == 0:
-            raise ForwardValidationError("Official DSE EOD file contains no observations")
+            return None
         if not parsed:
             raise ForwardValidationError("Official DSE EOD file contains no eligible universe rows")
         missing = sorted(set(EXPANDED_UNIVERSE) - set(parsed))
@@ -582,6 +602,26 @@ class ForwardPaperValidationRunner:
             "missing_symbols": missing,
             "unavailable_symbols": unavailable,
         }
+
+    @staticmethod
+    def _parse_manual_rows(raw: bytes, suffix: str, claimed_market_date: date) -> dict[str, Any]:
+        populated = [
+            parsed
+            for rows in _candidate_tables(raw, suffix)
+            if (
+                parsed := ForwardPaperValidationRunner._parse_manual_table(
+                    rows, claimed_market_date
+                )
+            )
+            is not None
+        ]
+        if not populated:
+            raise ForwardValidationError("Official DSE EOD file contains no observations")
+        if len(populated) != 1:
+            raise ForwardValidationError(
+                "Official DSE EOD HTML contains ambiguous populated matching tables"
+            )
+        return populated[0]
 
     def _manual_runs(self, session: PaperSession) -> list[PaperSessionRun]:
         return self._runs(session, MANUAL_INGEST_RUN_TYPE)
@@ -685,7 +725,7 @@ class ForwardPaperValidationRunner:
                 raise ForwardValidationError("Raw snapshot was previously bound to another date")
             self._load_manual_observation(same_hash, now=receipt)
             self._ensure_manual_audit(str(same_hash.metrics["event_id"]), same_hash.metrics)
-            return cast(dict[str, Any], same_hash.metrics)
+            return same_hash.metrics
         boundary = self._implementation_boundary()
         boundary_time = datetime.fromisoformat(boundary["committed_at"])
         if session_completed_at.tzinfo is None or session_completed_at.utcoffset() is None:
@@ -800,7 +840,7 @@ class ForwardPaperValidationRunner:
             metrics=metrics,
         )
         self._ensure_manual_audit(event_id, run.metrics)
-        return cast(dict[str, Any], run.metrics)
+        return run.metrics
 
     def _session(self) -> PaperSession | None:
         return self.db.scalar(select(PaperSession).where(PaperSession.name == SESSION_NAME))
@@ -1082,7 +1122,7 @@ class ForwardPaperValidationRunner:
                 reason="; ".join(blockers),
                 metrics={**metrics, "trade_effect": False},
             )
-            consumed.append(cast(dict[str, Any], observation.metrics))
+            consumed.append(observation.metrics)
         return consumed
 
     def manual_ingestion_status(self, session: PaperSession | None = None) -> dict[str, Any]:
