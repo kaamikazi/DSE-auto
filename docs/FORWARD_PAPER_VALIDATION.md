@@ -27,6 +27,13 @@ Run from `backend`:
 
 ```powershell
 python -m app.minimal_v1_cli forward-status
+$attestation = 'I manually obtained this official DSE public EOD/archive file, the stated market session had completed, and these observations were visible when I acquired it.'
+python -m app.minimal_v1_cli forward-ingest `
+  --file C:\path\to\manually-obtained-dse-eod.html `
+  --market-date 2026-08-11 `
+  --source official_dse_public_eod_archive `
+  --session-completed-at 2026-08-11T14:10:00+06:00 `
+  --attestation $attestation
 python -m app.minimal_v1_cli forward-start --mode forward
 python -m app.minimal_v1_cli forward-stop
 python -m app.minimal_v1_cli forward-emergency "explicit operator reason"
@@ -40,14 +47,41 @@ python -m app.minimal_v1_cli forward-reconcile
 the existing owner. Emergency halt prevents new executions, preserves holdings/evidence, and
 requires the explicit resume flag. Stop is cooperative and does not liquidate.
 
-## Real-data blocker
+## Operator-attested manual EOD boundary
 
-The current `mock` provider is forbidden for forward evidence. Genuine collection remains blocked
-until all 25 symbols have a trustworthy adjusted EOD source with validated lineage and
-exchange-verified or operator-attested timestamps, and the DSE market/holiday calendar is
-operator-verified. A certified forward-ingestion contract must then be added and independently
-verified; the current build deliberately has none. Historical research files are accepted only in
-isolated replay mode and never masquerade as current data.
+`forward-ingest` reads one local, single-market-date CSV or saved HTML archive file. It performs no
+download and accepts only the exact source identity `official_dse_public_eod_archive`. The operator
+must obtain the file manually through ordinary access and provide the exact attestation shown
+above. AmarStock automation, HTTP clients, browser automation, TLS bypasses, external messages,
+and broker access are absent from this path.
+
+The command captures its own UTC receipt timestamp and records the separately attested session
+completion time. Availability is the later of those values. It refuses a session completed before
+the current committed implementation boundary, so pre-existing August/replay files cannot be
+relabelled as forward evidence. The command also refuses tracked working-tree changes; the first
+accepted observation must therefore come from a session completed after the final implementation
+commit.
+
+Raw bytes are retained under
+`data/process-state/minimal_v1_forward/<session-id>/manual_eod/<date>/<raw-sha256>/`. The raw file,
+canonical normalized JSON, and evidence JSON are write-once identities. The database and JSONL
+ledgers bind original filename, hashes, parser version, source, attestation, receipt/availability,
+full source symbol set, row count, and missing/unavailable symbols. Re-ingesting identical bytes is
+idempotent. A corrected file receives a new hash/version and links to, but never overwrites, the
+prior event or availability time.
+
+DSE public observations are always `raw_unadjusted`. Missing, suspended, or nonpositive source
+rows are surfaced and never synthesized. The runner can consume the accepted evidence, but it
+records no decision or trading effect while the adjusted analytical view, corporate-action
+evidence, or period-ending calendar evidence is unresolved. The automated-provider readiness
+assessment remains blocked and uncertified.
+
+Historical research files are accepted only in isolated replay mode and never masquerade as
+current data.
+
+This boundary adds one CLI command and no table, migration, persisted lifecycle state,
+audit-event type, provider abstraction, or report format. It reuses `paper_session_runs`, the
+existing JSONL projection, and the existing `data_import.activated` audit type.
 
 Replay requires a copied, isolated database and the `test` database role:
 

@@ -47,6 +47,7 @@ python -m app.minimal_v1_cli strategies
 python -m app.minimal_v1_cli runs [run-id]
 python -m app.minimal_v1_cli reproduce [run-id] [--output-dir PATH]
 python -m app.minimal_v1_cli forward-status
+python -m app.minimal_v1_cli forward-ingest --help
 python -m app.minimal_v1_cli forward-start --mode forward
 python -m app.minimal_v1_cli forward-stop
 python -m app.minimal_v1_cli forward-emergency "explicit operator reason"
@@ -57,8 +58,10 @@ python -m app.minimal_v1_cli forward-reconcile
 
 Campaign, qualification, reviewer, provider-certification, approval, and broker commands are
 not reachable through this CLI. See [FORWARD_PAPER_VALIDATION.md](FORWARD_PAPER_VALIDATION.md)
-for the dedicated session, isolated replay, crash recovery, emergency stop, data blockers, and
-Windows Task Scheduler contract.
+for the dedicated session, local-only operator-attested EOD boundary, isolated replay, crash
+recovery, emergency stop, data blockers, and Windows Task Scheduler contract. Manual ingestion
+does not certify an automated provider and cannot itself create a decision, order, fill, or
+transaction.
 
 ## Reproduction contract
 

@@ -25,9 +25,10 @@ historical-run review, and deterministic reproduction. Legacy operator and miles
 remain only for retained dependencies or historical evidence compatibility.
 
 Minimal V1 also owns the sole local forward paper-validation runner for the frozen
-`absolute_momentum_filter@0.1.0` identity. Genuine forward collection is currently blocked because
-no trustworthy adjusted 25-symbol EOD source and operator-verified market calendar are configured.
-No forward-ingestion contract is certified in the current build.
+`absolute_momentum_filter@0.1.0` identity. No automated forward provider is certified. A separate
+local-only, operator-attested manual boundary can preserve official DSE public EOD files obtained
+by the operator after the implementation boundary. Raw observations remain unadjusted and cannot
+produce strategy decisions until adjustment and period-end calendar evidence is resolved.
 
 ## Architecture
 
@@ -118,7 +119,7 @@ milestone runners for new operator work.
 
 The authorized forward runner creates only dedicated local simulated paper records. See
 [Forward Paper Validation](docs/FORWARD_PAPER_VALIDATION.md) for its start/stop/emergency,
-isolated replay, idempotency, data-trust, and Windows deployment boundaries.
+manual-ingestion, isolated replay, idempotency, data-trust, and Windows deployment boundaries.
 
 ## Frontend setup
 
