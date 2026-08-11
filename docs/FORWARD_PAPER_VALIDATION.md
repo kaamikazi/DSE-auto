@@ -79,6 +79,35 @@ assessment remains blocked and uncertified.
 Historical research files are accepted only in isolated replay mode and never masquerade as
 current data.
 
+## Daily manual workflow
+
+Manually download the official DSE Day End page and save the untouched file under
+`E:\DSE AutoTrader\End of day`. Prefer `YYYY-MM-DD.html`; an existing filename does not need to be
+changed. Files in this operator-owned folder are immutable source material: placing one there does
+not ingest it, and the application must never rewrite, rename, move, or delete it.
+
+From Windows CMD, explicitly ingest the file only after verifying the actual session-completion
+timestamp. The filename is convenience metadata; the parser still checks the claimed date against
+the file contents.
+
+```bat
+cd /d "E:\DSE AutoTrader\backend"
+set "ATTESTATION=I manually obtained this official DSE public EOD/archive file, the stated market session had completed, and these observations were visible when I acquired it."
+set /p "SESSION_COMPLETED_AT=Enter verified session completion (YYYY-MM-DDTHH:MM:SS+06:00): "
+python -m app.minimal_v1_cli forward-ingest ^
+  --file "..\End of day\2026-08-11.html" ^
+  --market-date 2026-08-11 ^
+  --source official_dse_public_eod_archive ^
+  --session-completed-at "%SESSION_COMPLETED_AT%" ^
+  --attestation "%ATTESTATION%"
+python -m app.minimal_v1_cli forward-status
+python -m app.minimal_v1_cli forward-reconcile
+```
+
+Never modify the original file after ingestion. Re-ingestion of identical bytes remains
+idempotent; a materially corrected source must remain a separate file and becomes an explicit new
+version.
+
 This boundary adds one CLI command and no table, migration, persisted lifecycle state,
 audit-event type, provider abstraction, or report format. It reuses `paper_session_runs`, the
 existing JSONL projection, and the existing `data_import.activated` audit type.

@@ -39,6 +39,7 @@ node_modules/
 *.cer
 
 # Operational and private artifacts
+/End of day/
 reports/
 logs/
 tmp/
