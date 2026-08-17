@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.core.database_identity import OPERATIONAL_SQLITE_PATH, REPOSITORY_ROOT
 from app.services.watchtower import run_watchtower
+from app.services.watchtower_instrument_master import build_local_instrument_master
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=REPOSITORY_ROOT / "config/watchtower_instrument_master.csv",
     )
     parser.add_argument(
+        "--instrument-provenance",
+        type=Path,
+        default=REPOSITORY_ROOT / "config/watchtower_instrument_master.provenance.json",
+    )
+    parser.add_argument(
+        "--instrument-evidence-dir",
+        type=Path,
+        default=REPOSITORY_ROOT / "Market evidence/instrument master",
+        help="Directory containing immutable, manually saved official instrument pages",
+    )
+    parser.add_argument(
+        "--refresh-instrument-master",
+        action="store_true",
+        help="Rebuild the local master and provenance from saved local HTML before scanning",
+    )
+    parser.add_argument(
         "--events",
         type=Path,
         default=REPOSITORY_ROOT / "config/watchtower_events.json",
@@ -32,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=REPOSITORY_ROOT / "reports/watchtower",
+        default=REPOSITORY_ROOT / "reports/watchtower/v0.2.0",
     )
     parser.add_argument(
         "--protected-database",
@@ -45,13 +62,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    master_build = None
+    if args.refresh_instrument_master:
+        master_build = build_local_instrument_master(
+            evidence_directory=args.instrument_evidence_dir,
+            instrument_master_path=args.instrument_master,
+            provenance_path=args.instrument_provenance,
+            repository_root=REPOSITORY_ROOT,
+        )
     result = run_watchtower(
         day_end_directory=args.day_end_dir,
         instrument_master_path=args.instrument_master,
         event_evidence_path=args.events,
         output_root=args.output_dir,
         protected_database_path=args.protected_database,
+        instrument_provenance_path=args.instrument_provenance,
     )
+    if master_build is not None:
+        result["instrument_master_build"] = master_build.payload()
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

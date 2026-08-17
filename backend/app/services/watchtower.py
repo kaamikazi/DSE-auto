@@ -16,8 +16,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.services.forward_paper_validation import _candidate_tables
+from app.services.watchtower_instrument_master import load_instrument_provenance
 
-WATCHTOWER_SCHEMA = "dse_watchtower@0.1.0"
+WATCHTOWER_SCHEMA = "dse_watchtower@0.2.0"
 REPORT_LABELS = {
     "NORMAL",
     "WATCH",
@@ -795,6 +796,7 @@ def build_watchtower_report(
     events: Sequence[EventEvidence],
     *,
     protected_database_sha256: str | None = None,
+    instrument_provenance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not sessions:
         raise WatchtowerError("Watchtower requires at least one Day End session")
@@ -805,12 +807,29 @@ def build_watchtower_report(
     for session in ordered_sessions:
         for observation in session.observations:
             by_symbol[observation.trading_code].append(observation)
+    provenance = instrument_provenance or {}
+    provenance_records = provenance.get("records", {})
+    if not isinstance(provenance_records, dict):
+        raise WatchtowerError("Instrument provenance records must be an object")
     records: list[dict[str, Any]] = []
     for current in latest.observations:
         history = [item for item in by_symbol[current.trading_code] if item.market_date < latest.market_date]
         features = calculate_features(current, history)
         score, components = attention_score(features)
         metadata = instrument_master.get(current.trading_code, _default_instrument(current.trading_code))
+        raw_provenance = provenance_records.get(current.trading_code, {})
+        evidence = raw_provenance if isinstance(raw_provenance, dict) else {}
+        missing_fields = evidence.get("missing_fields", [])
+        if not isinstance(missing_fields, list) or not all(
+            isinstance(item, str) for item in missing_fields
+        ):
+            missing_fields = []
+        profile_reference = evidence.get("official_profile_reference")
+        if not isinstance(profile_reference, str) or not profile_reference:
+            profile_reference = None
+        resolution_status = evidence.get("resolution_status", "NO_LOCAL_IDENTITY_EVIDENCE")
+        if not isinstance(resolution_status, str):
+            resolution_status = "NO_LOCAL_IDENTITY_EVIDENCE"
         label, candidate_eligible, reasons = _classify(metadata, current, features, score)
         if label not in REPORT_LABELS:
             raise AssertionError(f"Unsupported Watchtower label: {label}")
@@ -832,6 +851,12 @@ def build_watchtower_report(
                 },
                 "report_label": label,
                 "watchlist_candidate_eligible": candidate_eligible,
+                "verification_evidence": {
+                    "resolution_status": resolution_status,
+                    "official_profile_reference": profile_reference,
+                    "missing_fields": missing_fields,
+                    "profile_fetched": False,
+                },
                 "why_flagged": [*reasons, *scored_reasons],
                 "event_evidence": _event_context(current.trading_code, events, as_of),
             }
@@ -861,6 +886,80 @@ def build_watchtower_report(
         value
         for record in verified_records
         if (value := _feature_value_from_payload(record, "daily_return_pct")) is not None
+    ]
+    verified_data_counts = Counter(
+        record["market_observation"]["data_status"] for record in verified_records
+    )
+    provenance_summary = provenance.get("summary", {})
+    if not isinstance(provenance_summary, dict):
+        provenance_summary = {}
+    verification_conflicts = int(provenance_summary.get("record_conflicts", 0)) + int(
+        provenance_summary.get("source_summary_conflicts", 0)
+    )
+    verified_watchlist = sorted(
+        (
+            record
+            for record in records
+            if record["watchlist_candidate_eligible"]
+            and record["report_label"] in {"WATCH", "HIGH_ATTENTION"}
+        ),
+        key=lambda item: (-int(item["attention_score"]["total"]), str(item["trading_code"])),
+    )
+    unverified_raw = sorted(
+        (
+            record
+            for record in records
+            if record["instrument"]["verification_status"]
+            == VerificationStatus.UNVERIFIED_INSTRUMENT.value
+            and int(record["attention_score"]["total"]) > 0
+        ),
+        key=lambda item: (-int(item["attention_score"]["total"]), str(item["trading_code"])),
+    )
+
+    def ranking_payload(record: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "trading_code": record["trading_code"],
+            "company_name": record["instrument"]["company_name"],
+            "attention_score": record["attention_score"]["total"],
+            "report_label": record["report_label"],
+            "watchlist_candidate_eligible": record["watchlist_candidate_eligible"],
+        }
+
+    profile_requests = [
+        {
+            "status": "PROFILE_EVIDENCE_REQUIRED",
+            "trading_code": record["trading_code"],
+            "company_name": record["instrument"]["company_name"],
+            "attention_score": record["attention_score"]["total"],
+            "anomaly_facts": {
+                "daily_return_pct": record["features"]["daily_return_pct"]["value"],
+                "opening_gap_pct": record["features"]["opening_gap_pct"]["value"],
+                "intraday_range_pct": record["features"]["intraday_range_pct"]["value"],
+                "volume": record["market_observation"]["volume"],
+                "trade_count": record["market_observation"]["trade_count"],
+                "traded_value_mn": record["market_observation"]["traded_value_mn"],
+                "data_status": record["market_observation"]["data_status"],
+            },
+            "official_profile_reference": record["verification_evidence"][
+                "official_profile_reference"
+            ],
+            "profile_reference_source": (
+                "saved_company_listing_link"
+                if record["verification_evidence"]["official_profile_reference"]
+                else None
+            ),
+            "missing_fields": record["verification_evidence"]["missing_fields"]
+            or [
+                "company_name",
+                "sector",
+                "instrument_type",
+                "market_category",
+                "listing_status",
+                "observed_at",
+            ],
+            "network_fetch_performed": False,
+        }
+        for record in unverified_raw[:20]
     ]
     feature_status_counts: dict[str, dict[str, int]] = {}
     for feature_name in records[0]["features"] if records else ():
@@ -899,8 +998,13 @@ def build_watchtower_report(
                 VerificationStatus.UNVERIFIED_INSTRUMENT.value
             ],
             "non_equities_observed": classification_counts[VerificationStatus.NON_EQUITY.value],
+            "verification_conflicts": verification_conflicts,
             "traded_usable": data_counts[DataStatus.USABLE.value],
             "zero_activity": data_counts[DataStatus.ZERO_ACTIVITY.value],
+            "traded_verified_equities": verified_data_counts[DataStatus.USABLE.value],
+            "zero_activity_verified_equities": verified_data_counts[
+                DataStatus.ZERO_ACTIVITY.value
+            ],
             "data_issue_rows": data_counts[DataStatus.DATA_ISSUE.value],
             "advancing": sum(value > 0 for value in returns),
             "declining": sum(value < 0 for value in returns),
@@ -928,6 +1032,19 @@ def build_watchtower_report(
             "watch_threshold": 4,
             "high_attention_threshold": 8,
             "unverified_instruments_can_be_watchlist_candidates": False,
+        },
+        "rankings": {
+            "verified_watchlist": [ranking_payload(record) for record in verified_watchlist],
+            "unverified_raw_anomalies": [
+                ranking_payload(record) for record in unverified_raw[:20]
+            ],
+        },
+        "profile_evidence_required": profile_requests,
+        "instrument_master_provenance": {
+            "schema": provenance.get("schema"),
+            "summary": provenance_summary,
+            "sources": provenance.get("sources", []),
+            "policy": provenance.get("policy", {}),
         },
         "manual_evidence_needed": {
             "instrument_master": [
@@ -1065,13 +1182,6 @@ def render_watchtower_csv(report: Mapping[str, Any]) -> bytes:
     return stream.getvalue().encode("utf-8")
 
 
-def _feature_display(record: Mapping[str, Any], name: str) -> str:
-    feature = record["features"][name]
-    if feature["value"] is None:
-        return f"{feature['status']} ({feature['reason']})"
-    return f"{feature['value']} {feature['unit']}"
-
-
 def render_watchtower_markdown(report: Mapping[str, Any]) -> bytes:
     summary = report["broad_market_summary"]
     records = report["records"]
@@ -1086,36 +1196,53 @@ def render_watchtower_markdown(report: Mapping[str, Any]) -> bytes:
         f"- Verified equities: {summary['verified_equities_observed']}",
         f"- Unverified instruments: {summary['unverified_instruments_observed']}",
         f"- Non-equities: {summary['non_equities_observed']}",
+        f"- Verification conflicts: {summary['verification_conflicts']}",
         f"- Traded/usable: {summary['traded_usable']}",
         f"- Zero activity: {summary['zero_activity']}",
+        f"- Traded verified equities: {summary['traded_verified_equities']}",
+        f"- Zero-activity verified equities: {summary['zero_activity_verified_equities']}",
         f"- Advancing / declining / unchanged: {summary['advancing']} / {summary['declining']} / {summary['unchanged']}",
         f"- Median return: {summary['median_return_pct'] if summary['median_return_pct'] is not None else 'unavailable'}%",
         f"- Median volume anomaly: {summary['median_volume_anomaly'] if summary['median_volume_anomaly'] is not None else 'unavailable'}",
         "",
     ]
 
-    def add_ranked_section(title: str, labels: set[str]) -> None:
-        lines.extend([f"## {title}", ""])
-        ranked = _ranked(records, labels)
-        if not ranked:
-            lines.extend(["None — Watchtower abstained.", ""])
-            return
-        for index, record in enumerate(ranked[:20], 1):
+    lines.extend(["## VERIFIED WATCHLIST", ""])
+    verified_watchlist = report["rankings"]["verified_watchlist"]
+    if verified_watchlist:
+        for index, item in enumerate(verified_watchlist, 1):
+            lines.append(
+                f"{index}. **{item['trading_code']}** — {item['report_label']}; "
+                f"attention score {item['attention_score']}"
+            )
+    else:
+        lines.extend(["None — no verified equity qualified.", ""])
+    lines.extend(["", "## UNVERIFIED RAW ANOMALIES", ""])
+    raw_anomalies = report["rankings"]["unverified_raw_anomalies"]
+    if raw_anomalies:
+        for index, item in enumerate(raw_anomalies, 1):
+            lines.append(
+                f"{index}. **{item['trading_code']}** — raw attention score "
+                f"{item['attention_score']}; not watchlist eligible"
+            )
+    else:
+        lines.append("None.")
+    lines.extend(["", "## PROFILE EVIDENCE REQUIRED", ""])
+    requests = report["profile_evidence_required"]
+    if requests:
+        for index, request in enumerate(requests, 1):
+            profile = request["official_profile_reference"] or "unavailable in saved listing"
             lines.extend(
                 [
-                    f"{index}. **{record['trading_code']}** — ATTENTION SCORE {record['attention_score']['total']}",
-                    f"   - Return anomaly: {_feature_display(record, 'daily_return_pct')}",
-                    f"   - Volume anomaly: {_feature_display(record, 'volume_multiple')}",
-                    f"   - Trade-count anomaly: {_feature_display(record, 'trade_count_multiple')}",
-                    f"   - Event evidence: {record['event_evidence']['status']} (causality not inferred)",
-                    f"   - Data quality: {record['market_observation']['data_status']}",
-                    f"   - Why flagged: {'; '.join(record['why_flagged'])}",
+                    f"{index}. **{request['trading_code']}** — PROFILE_EVIDENCE_REQUIRED",
+                    f"   - Saved official profile reference: {profile}",
+                    f"   - Missing fields: {', '.join(request['missing_fields'])}",
+                    "   - Network fetch performed: false",
                 ]
             )
-        lines.append("")
-
-    add_ranked_section("HIGH ATTENTION", {"HIGH_ATTENTION"})
-    add_ranked_section("WATCH", {"WATCH"})
+    else:
+        lines.append("None.")
+    lines.append("")
     lines.extend(["## INSUFFICIENT HISTORY", ""])
     insufficient = _ranked(records, {"INSUFFICIENT_HISTORY"})
     if insufficient:
@@ -1191,6 +1318,7 @@ def run_watchtower(
     event_evidence_path: Path | None,
     output_root: Path,
     protected_database_path: Path | None = None,
+    instrument_provenance_path: Path | None = None,
 ) -> dict[str, Any]:
     database_hash_before = (
         _sha256_file(protected_database_path)
@@ -1200,12 +1328,26 @@ def run_watchtower(
     sessions = load_day_end_sessions(day_end_directory)
     source_hashes_before = {session.source_path: session.source_sha256 for session in sessions}
     master = load_instrument_master(instrument_master_path)
+    try:
+        instrument_provenance = load_instrument_provenance(instrument_provenance_path)
+    except RuntimeError as exc:
+        raise WatchtowerError(str(exc)) from exc
+    if instrument_provenance and instrument_master_path is not None:
+        master_provenance = instrument_provenance.get("master", {})
+        expected_master_hash = (
+            master_provenance.get("sha256") if isinstance(master_provenance, dict) else None
+        )
+        if not isinstance(expected_master_hash, str) or not instrument_master_path.is_file():
+            raise WatchtowerError("Instrument provenance lacks a usable master hash")
+        if _sha256_file(instrument_master_path) != expected_master_hash:
+            raise WatchtowerError("Instrument master does not match its provenance hash")
     events = load_event_evidence(event_evidence_path)
     report = build_watchtower_report(
         sessions,
         master,
         events,
         protected_database_sha256=database_hash_before,
+        instrument_provenance=instrument_provenance,
     )
     database_hash_after_scan = (
         _sha256_file(protected_database_path)
